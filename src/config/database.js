@@ -41,11 +41,21 @@ function initSqlite() {
 
   sqliteDb = new Database(env.sqliteFile);
   sqliteDb.pragma("journal_mode = WAL");
+  // SQLite ignores REFERENCES constraints unless this is turned on explicitly.
+  sqliteDb.pragma("foreign_keys = ON");
   return sqliteDb;
 }
 
 function init() {
   return env.dbClient === "postgres" ? initPostgres() : initSqlite();
+}
+
+// node-postgres needs $1, $2, ... placeholders; better-sqlite3 needs ?.
+// Callers always write "?" and this converts it for Postgres, so query()
+// and the SQL in database/schema.sql stay identical across both dialects.
+function toPgPlaceholders(text) {
+  let i = 0;
+  return text.replace(/\?/g, () => `$${++i}`);
 }
 
 /**
@@ -58,7 +68,7 @@ function init() {
 async function query(text, params = []) {
   if (env.dbClient === "postgres") {
     const pool = initPostgres();
-    const result = await pool.query(text, params);
+    const result = await pool.query(toPgPlaceholders(text), params);
     return { rows: result.rows };
   }
 
@@ -67,6 +77,20 @@ async function query(text, params = []) {
   const isSelect = /^\s*select/i.test(text);
   const rows = isSelect ? stmt.all(...params) : (stmt.run(...params), []);
   return { rows };
+}
+
+/**
+ * Runs a raw, multi-statement SQL script (schema migrations, seed files).
+ * Not parameterized and not for request-path use — query() above is for that.
+ */
+async function runScript(sql) {
+  if (env.dbClient === "postgres") {
+    const pool = initPostgres();
+    await pool.query(sql);
+    return;
+  }
+  const db = initSqlite();
+  db.exec(sql);
 }
 
 /**
@@ -100,4 +124,4 @@ async function close() {
   }
 }
 
-module.exports = { init, query, getClient, healthCheck, close };
+module.exports = { init, query, getClient, runScript, healthCheck, close };

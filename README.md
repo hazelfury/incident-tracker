@@ -1,12 +1,21 @@
 # Incident Tracker — Backend
 
-Week 2 deliverable: Express server architecture, middleware pipeline, and
-database connection pooling for the Real-Time Incident Tracking & Service
-Desk Management System.
+Week 2: Express server architecture, middleware pipeline, and database
+connection pooling.
+Week 3: database schema for incidents, priority SLAs, user assignments, and
+status change logs.
+
+Backend for the Real-Time Incident Tracking & Service Desk Management System.
 
 ## Structure
 
 ```
+database/
+  schema.sql           the full schema — teams, users, categories, priorities,
+                        incidents, incident_assignments, incident_status_history
+scripts/
+  migrate.js           applies database/schema.sql (npm run db:migrate)
+  seed.js              inserts default priorities (SLAs) and categories, safe to re-run
 src/
   app.js              Express app factory — assembles the middleware pipeline
   server.js           Entry point — starts the HTTP server, graceful shutdown
@@ -24,6 +33,8 @@ src/
 tests/
   setupEnv.js          forces DB_CLIENT=sqlite (:memory:) for tests
   health.test.js       supertest coverage of the health check and 404 path
+  schema.test.js       migrates an in-memory DB, checks tables, the incident
+                       status CHECK constraint, and SLA/assignment data
 ```
 
 ## Middleware pipeline (in order)
@@ -58,6 +69,36 @@ selected via `DB_CLIENT`:
 
 `server.js` also handles `SIGTERM`/`SIGINT` to close the pool/connection
 cleanly on shutdown, with a 10s force-exit fallback.
+
+One dialect detail this layer handles for you: `pg` needs `$1, $2, ...`
+placeholders while `better-sqlite3` needs `?`. `query()` always accepts `?`
+and rewrites it to `$1, $2, ...` internally when `DB_CLIENT=postgres`, so
+every call site — routes, scripts, tests — writes the same SQL either way.
+
+## Database schema
+
+`database/schema.sql` defines seven tables and runs unchanged on both
+Postgres and SQLite (ids are app-generated UUID strings, so there's no
+SERIAL/AUTOINCREMENT split to work around):
+
+- **`teams`**, **`users`**, **`categories`** — supporting/reference data
+- **`priorities`** — the SLA source of truth: `sla_response_mins` and
+  `sla_resolution_mins` per level, so SLA targets live in one place instead
+  of being hardcoded wherever they're checked
+- **`incidents`** — the core record, with a `status` CHECK constraint
+  restricting it to the seven lifecycle states from the Week 1 design
+- **`incident_assignments`** — full assignment history (`assigned_to`,
+  `assigned_by`, `assigned_at`/`unassigned_at`), not just whichever agent
+  currently holds `incidents.assignee_id`
+- **`incident_status_history`** — append-only log of every status
+  transition (`from_status` -> `to_status`, who changed it, when)
+
+Apply it and load default SLA/category data:
+
+```bash
+npm run db:migrate    # creates all tables (safe to re-run — IF NOT EXISTS)
+npm run db:seed       # inserts P1–P4 priorities and default categories (safe to re-run)
+```
 
 ## Running locally
 
