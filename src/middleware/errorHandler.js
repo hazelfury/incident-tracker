@@ -2,8 +2,8 @@ const env = require("../config/env");
 
 // Route/service code throws errors with `err.statusCode` and
 // `err.isOperational = true` for expected failures (validation, not found,
-// etc.). Anything else is treated as a bug: logged in full, masked from the
-// client, and reported as a 500.
+// conflicting state, etc. — see src/utils/httpError.js). Anything else is
+// treated as a bug: logged in full, masked from the client, reported as 500.
 // eslint-disable-next-line no-unused-vars
 function errorHandler(err, req, res, next) {
   const status = err.statusCode || err.status || 500;

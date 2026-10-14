@@ -61,12 +61,24 @@ describe("incidents", () => {
   });
 
   it("rejects a status outside the allowed lifecycle values", async () => {
-    await expect(
-      db.query(
+    // A plain try/catch here instead of expect(...).rejects.toThrow() —
+    // the latter proved unreliable when this suite ran alongside
+    // incidents.test.js in the same Jest worker (a timing interaction with
+    // supertest's async teardown, not a database bug — the CHECK constraint
+    // itself was always being enforced correctly). This form is immune to it.
+    let threw = false;
+    let message = "";
+    try {
+      await db.query(
         "INSERT INTO incidents (id, title, status, reporter_id, category_id, priority_id) VALUES (?, ?, ?, ?, ?, ?)",
         ["inc-bad", "Test incident", "not_a_real_status", "user-1", "cat-1", "pri-critical"]
-      )
-    ).rejects.toThrow();
+      );
+    } catch (err) {
+      threw = true;
+      message = err.message;
+    }
+    expect(threw).toBe(true);
+    expect(message).toMatch(/CHECK constraint failed/);
   });
 
   it("accepts a valid status and defaults to 'new' when omitted", async () => {

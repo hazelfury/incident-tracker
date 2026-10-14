@@ -1,9 +1,8 @@
 # Incident Tracker — Backend
 
-Week 2: Express server architecture, middleware pipeline, and database
-connection pooling.
-Week 3: database schema for incidents, priority SLAs, user assignments, and
-status change logs.
+Week 2: Express server architecture, middleware pipeline, database connection pooling.
+Week 3: database schema for incidents, priority SLAs, user assignments, status change logs.
+Week 4: REST API endpoints for incident creation, assignment updates, and resolution timestamps.
 
 Backend for the Real-Time Incident Tracking & Service Desk Management System.
 
@@ -11,124 +10,171 @@ Backend for the Real-Time Incident Tracking & Service Desk Management System.
 
 ```
 database/
-  schema.sql           the full schema — teams, users, categories, priorities,
-                        incidents, incident_assignments, incident_status_history
+  schema.sql            the full schema — see Week 3 section below
 scripts/
-  migrate.js           applies database/schema.sql (npm run db:migrate)
-  seed.js              inserts default priorities (SLAs) and categories, safe to re-run
+  migrate.js             applies database/schema.sql (npm run db:migrate)
+  seed.js                 default priorities (SLAs) and categories (npm run db:seed)
 src/
-  app.js              Express app factory — assembles the middleware pipeline
-  server.js           Entry point — starts the HTTP server, graceful shutdown
+  app.js                Express app factory — middleware pipeline
+  server.js              entry point — starts the HTTP server, graceful shutdown
   config/
-    env.js            Loads and defaults all environment variables
-    database.js        Postgres pool (prod) / SQLite connection (dev+test)
+    env.js                environment variables, with defaults
+    database.js            Postgres pool / SQLite connection, query() + withTransaction()
   middleware/
-    requestLogger.js   morgan request logging
-    asyncHandler.js     wraps async route handlers so errors reach errorHandler
-    notFound.js         404 handler
-    errorHandler.js     centralized error -> JSON response handler
+    requestLogger.js       morgan request logging
+    asyncHandler.js         wraps async route handlers
+    notFound.js             404 handler
+    errorHandler.js         centralized error -> JSON response handler
+  utils/
+    httpError.js            HttpError(statusCode, message) for operational errors
+  services/
+    incidentService.js      business logic: create, assign, status/resolution transitions
+  controllers/
+    incidentsController.js  thin HTTP layer over incidentService
   routes/
-    index.js            mounts feature routers under /api
-    health.js            GET /api/health — verifies the DB connection is live
+    index.js                mounts feature routers under /api
+    health.js                 GET /api/health
+    incidents.js               incident endpoints (below)
 tests/
-  setupEnv.js          forces DB_CLIENT=sqlite (:memory:) for tests
-  health.test.js       supertest coverage of the health check and 404 path
-  schema.test.js       migrates an in-memory DB, checks tables, the incident
-                       status CHECK constraint, and SLA/assignment data
+  setupEnv.js             forces DB_CLIENT=sqlite (:memory:) for tests
+  health.test.js          health check + 404 coverage
+  schema.test.js          migration, CHECK constraint, SLA/assignment data
+  incidents.test.js       full incident API coverage (see Week 4 section below)
 ```
 
-## Middleware pipeline (in order)
+## Week 2 — server architecture
 
-1. `helmet()` — security headers
-2. `cors()` — restricts origins via `CORS_ORIGIN`
-3. `express.json()` / `express.urlencoded()` — body parsing
-4. `requestLogger` — request logging (skipped in test env)
-5. feature routes, mounted under `/api`
-6. `notFound` — catches anything no route matched
-7. `errorHandler` — catches everything thrown/rejected above it
+**Middleware pipeline** (`src/app.js`, in order): `helmet` → `cors` → body parsing →
+request logging → routes (`/api`) → `notFound` → `errorHandler`. The two terminal
+handlers must stay last — Express only routes errors to handlers registered
+after whatever threw.
 
-The two terminal handlers (`notFound`, `errorHandler`) must stay last —
-Express matches middleware in registration order, and `errorHandler` only
-catches errors from things registered *before* it.
+**Connection pooling** (`src/config/database.js`): one `query()`/`getClient()`
+interface regardless of which database is behind it, picked via `DB_CLIENT`:
+a `pg.Pool` (configurable size/timeouts, an `error` listener so a bad idle
+connection can't crash the process) for Postgres, or a single
+`better-sqlite3` connection for local dev/tests. The pool is created once at
+startup (`db.init()`), not lazily on first request.
 
-## Database connection pooling
+One dialect detail this layer handles: `pg` needs `$1, $2, ...` placeholders,
+`better-sqlite3` needs `?`. Every call site writes `?`; `query()` converts it
+automatically when `DB_CLIENT=postgres`.
 
-`src/config/database.js` exposes one interface — `query()`, `getClient()`,
-`healthCheck()`, `close()` — regardless of which database is behind it,
-selected via `DB_CLIENT`:
+## Week 3 — database schema
 
-- **`postgres`** (staging/production): a `pg.Pool` with configurable
-  `max`, `idleTimeoutMillis`, and `connectionTimeoutMillis`. The pool is
-  created once at server startup (`db.init()` in `server.js`), not lazily
-  on first request, so a bad `DATABASE_URL` fails fast on boot instead of
-  on a user's request. A listener on the pool's `error` event stops a bad
-  idle connection from crashing the process.
-- **`sqlite`** (local dev & tests): a single `better-sqlite3` connection
-  (file-backed locally, `:memory:` in tests) behind the same interface, so
-  route/service code never has to branch on which database it's talking to.
+`database/schema.sql` — seven tables, unchanged SQL on both Postgres and
+SQLite (ids are app-generated UUID strings, no SERIAL/AUTOINCREMENT split):
 
-`server.js` also handles `SIGTERM`/`SIGINT` to close the pool/connection
-cleanly on shutdown, with a 10s force-exit fallback.
-
-One dialect detail this layer handles for you: `pg` needs `$1, $2, ...`
-placeholders while `better-sqlite3` needs `?`. `query()` always accepts `?`
-and rewrites it to `$1, $2, ...` internally when `DB_CLIENT=postgres`, so
-every call site — routes, scripts, tests — writes the same SQL either way.
-
-## Database schema
-
-`database/schema.sql` defines seven tables and runs unchanged on both
-Postgres and SQLite (ids are app-generated UUID strings, so there's no
-SERIAL/AUTOINCREMENT split to work around):
-
-- **`teams`**, **`users`**, **`categories`** — supporting/reference data
-- **`priorities`** — the SLA source of truth: `sla_response_mins` and
-  `sla_resolution_mins` per level, so SLA targets live in one place instead
-  of being hardcoded wherever they're checked
-- **`incidents`** — the core record, with a `status` CHECK constraint
-  restricting it to the seven lifecycle states from the Week 1 design
-- **`incident_assignments`** — full assignment history (`assigned_to`,
-  `assigned_by`, `assigned_at`/`unassigned_at`), not just whichever agent
-  currently holds `incidents.assignee_id`
+- **`teams`**, **`users`**, **`categories`** — reference data
+- **`priorities`** — the SLA source of truth: `sla_response_mins` /
+  `sla_resolution_mins` per level
+- **`incidents`** — the core record; `status` is CHECK-constrained to the
+  seven lifecycle states
+- **`incident_assignments`** — full assignment history, not just the
+  current `assignee_id`
 - **`incident_status_history`** — append-only log of every status
-  transition (`from_status` -> `to_status`, who changed it, when)
-
-Apply it and load default SLA/category data:
+  transition
 
 ```bash
-npm run db:migrate    # creates all tables (safe to re-run — IF NOT EXISTS)
-npm run db:seed       # inserts P1–P4 priorities and default categories (safe to re-run)
+npm run db:migrate    # creates all tables (safe to re-run)
+npm run db:seed       # loads P1-P4 priorities and default categories (safe to re-run)
 ```
 
-## Running locally
+## Week 4 — REST API
+
+### Endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/incidents` | Create an incident |
+| GET | `/api/incidents` | List incidents |
+| GET | `/api/incidents/:id` | Get one incident, with its assignment and status history |
+| PATCH | `/api/incidents/:id/assignment` | Assign or reassign |
+| PATCH | `/api/incidents/:id/status` | Change status (sets `resolved_at`/`closed_at`) |
+
+**Create** — `POST /api/incidents`
+```json
+{ "title": "VPN down", "description": "optional", "reporterId": "<user id>", "categoryId": "<category id>", "priorityId": "<priority id>", "teamId": "optional" }
+```
+Validates all referenced ids exist, inserts the incident in `new` status,
+computes `due_at` from the priority's `sla_resolution_mins`, and logs the
+initial row to `incident_status_history` — all in one transaction.
+
+**Assign** — `PATCH /api/incidents/:id/assignment`
+```json
+{ "assignedTo": "<user id>", "assignedBy": "<user id>", "reason": "optional" }
+```
+Closes out any currently-open `incident_assignments` row (`unassigned_at`),
+opens a new one, and updates `incidents.assignee_id`. If the incident is
+still `new`, this also advances it to `assigned` and logs that transition.
+Rejects with 409 if the incident is already `closed`/`cancelled`.
+
+**Change status** — `PATCH /api/incidents/:id/status`
+```json
+{ "status": "in_progress", "changedBy": "<user id>", "note": "optional" }
+```
+This is where resolution timestamps get set: `resolved_at` the moment
+status becomes `resolved`, `closed_at` the moment it becomes `closed`; both
+clear again if the incident is reopened back to `in_progress`. Every
+transition is logged to `incident_status_history`. Invalid transitions
+(e.g. `assigned` straight to `resolved`) return 409 with the allowed next
+states for that incident.
+
+Allowed transitions:
+```
+new          -> assigned, cancelled
+assigned     -> in_progress, cancelled
+in_progress  -> on_hold, resolved, cancelled
+on_hold      -> in_progress
+resolved     -> closed, in_progress   (reopen)
+closed       -> in_progress            (reopen)
+cancelled    -> (terminal)
+```
+
+### Why a transaction helper
+
+Several of these operations touch more than one table and need to stay
+atomic — assigning an incident writes `incident_assignments` *and*
+`incidents` *and* possibly `incident_status_history` together. `src/config/database.js`
+exports `withTransaction(fn)`, which runs `BEGIN`/`COMMIT` (or `ROLLBACK` on
+error) around a callback that receives a `query()` function bound to that
+one connection, using the same `?` placeholder convention as everywhere
+else. `incidentService.js` uses this for every multi-write operation.
+
+### Running locally
 
 ```bash
-cp .env.example .env      # defaults to DB_CLIENT=sqlite, no setup needed
+cp .env.example .env
 npm install
-npm run dev                # starts on http://localhost:4000
-curl http://localhost:4000/api/health
+npm run db:migrate
+npm run db:seed
+npm run dev                # http://localhost:4000
 ```
 
-To run against Postgres instead, set in `.env`:
-
+```bash
+curl -X POST http://localhost:4000/api/incidents \
+  -H "Content-Type: application/json" \
+  -d '{"title":"VPN down","reporterId":"<id>","categoryId":"<id>","priorityId":"<id>"}'
 ```
-DB_CLIENT=postgres
-DATABASE_URL=postgres://user:password@localhost:5432/incident_tracker
-```
 
-## Tests
+### Tests
 
 ```bash
 npm test
 ```
+
+`tests/incidents.test.js` covers: creation (including validation failures),
+assignment (including reassignment history and unknown-user rejection), the
+full status walk through `in_progress` → `resolved` → `closed` with
+timestamp checks, rejected invalid transitions, reopening clearing
+`resolved_at`, and the full `statusHistory` trail via `GET`.
 
 Tests force `DB_CLIENT=sqlite` with an in-memory database (`tests/setupEnv.js`)
 so they run without any external services.
 
 ## Next weeks
 
-This week is server plumbing only — no incident data yet. Feature routers
-(`incidents`, `users`, `teams`, `notifications`) will mount in
-`src/routes/index.js`, following the entity model from the Week 1
-requirements doc, with `asyncHandler` + `errorHandler` giving them
-consistent error handling for free.
+Notifications and audit-facing read endpoints (beyond what's already logged
+to `incident_status_history`) are the natural next step, along with
+authentication/authorization on top of the `users.role` column that's
+already in the schema.
