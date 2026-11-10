@@ -30,6 +30,7 @@ describe("schema migration", () => {
       "incidents",
       "incident_assignments",
       "incident_status_history",
+      "incident_escalations",
     ].forEach((table) => expect(names).toContain(table));
   });
 });

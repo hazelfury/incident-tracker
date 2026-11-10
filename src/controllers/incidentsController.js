@@ -14,7 +14,7 @@ exports.create = asyncHandler(async (req, res) => {
 });
 
 exports.list = asyncHandler(async (req, res) => {
-  const incidents = await incidentService.listIncidents();
+  const incidents = await incidentService.listIncidents({ status: req.query.status });
   res.json(incidents);
 });
 

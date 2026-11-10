@@ -1,6 +1,8 @@
 const crypto = require("crypto");
 const db = require("../config/database");
 const { HttpError } = require("../utils/httpError");
+const slaService = require("./slaService");
+const clock = require("../utils/clock");
 
 const ALLOWED_STATUSES = [
   "new",
@@ -26,7 +28,7 @@ const ALLOWED_TRANSITIONS = {
 };
 
 function nowIso() {
-  return new Date().toISOString();
+  return clock.now().toISOString();
 }
 
 async function rowExists(table, id) {
@@ -70,7 +72,7 @@ async function createIncident({ title, description, reporterId, categoryId, prio
   const id = crypto.randomUUID();
   const createdAt = nowIso();
   const slaMins = priorityResult.rows[0].sla_resolution_mins;
-  const dueAt = new Date(Date.now() + slaMins * 60000).toISOString();
+  const dueAt = new Date(Date.parse(createdAt) + slaMins * 60000).toISOString();
 
   return db.withTransaction(async (query) => {
     await query(
@@ -182,6 +184,14 @@ async function updateStatus({ incidentId, toStatus, changedBy, note }) {
       );
     }
 
+    if (toStatus === "assigned") {
+      throw new HttpError(
+        409,
+        `Cannot move incident to "assigned" without an assignee. ` +
+          `Use the assignment endpoint, which sets the assignee and the status together`
+      );
+    }
+
     const changedAt = nowIso();
     const reopening = toStatus === "in_progress" && ["resolved", "closed"].includes(incident.status);
 
@@ -202,25 +212,103 @@ async function updateStatus({ incidentId, toStatus, changedBy, note }) {
   });
 }
 
+// Read model for the dashboard: the incident row plus the human-readable
+// names the UI needs (priority, category, team, assignee, reporter), so the
+// front-end doesn't have to make a lookup request per row.
+const INCIDENT_SELECT = `
+  SELECT i.*,
+         p.name  AS priority_name,
+         p.level AS priority_level,
+         c.name  AS category_name,
+         t.name  AS team_name,
+         a.name  AS assignee_name,
+         r.name  AS reporter_name
+  FROM incidents i
+  JOIN priorities p ON p.id = i.priority_id
+  LEFT JOIN categories c ON c.id = i.category_id
+  LEFT JOIN teams t ON t.id = i.team_id
+  LEFT JOIN users a ON a.id = i.assignee_id
+  LEFT JOIN users r ON r.id = i.reporter_id`;
+
+const LIST_LIMIT = 500;
+
 async function getIncidentById(id) {
-  const { rows } = await db.query("SELECT * FROM incidents WHERE id = ?", [id]);
+  const { rows } = await db.query(`${INCIDENT_SELECT} WHERE i.id = ?`, [id]);
   if (!rows.length) {
     throw new HttpError(404, `Incident not found: ${id}`);
   }
   const assignments = await db.query(
-    "SELECT * FROM incident_assignments WHERE incident_id = ? ORDER BY assigned_at",
+    `SELECT ia.*, u.name AS assigned_to_name, b.name AS assigned_by_name
+     FROM incident_assignments ia
+     JOIN users u ON u.id = ia.assigned_to
+     LEFT JOIN users b ON b.id = ia.assigned_by
+     WHERE ia.incident_id = ?
+     ORDER BY ia.assigned_at`,
     [id]
   );
   const statusHistory = await db.query(
-    "SELECT * FROM incident_status_history WHERE incident_id = ? ORDER BY changed_at",
+    `SELECT h.*, u.name AS changed_by_name
+     FROM incident_status_history h
+     LEFT JOIN users u ON u.id = h.changed_by
+     WHERE h.incident_id = ?
+     ORDER BY h.changed_at`,
     [id]
   );
-  return { ...rows[0], assignments: assignments.rows, statusHistory: statusHistory.rows };
+  const escalations = await db.query(
+    `SELECT e.*,
+            pf.name  AS from_priority_name,
+            pf.level AS from_priority_level,
+            pt.name  AS to_priority_name,
+            pt.level AS to_priority_level,
+            u.name   AS escalated_by_name
+     FROM incident_escalations e
+     JOIN priorities pf ON pf.id = e.from_priority_id
+     JOIN priorities pt ON pt.id = e.to_priority_id
+     LEFT JOIN users u ON u.id = e.escalated_by
+     WHERE e.incident_id = ?
+     ORDER BY e.escalated_at`,
+    [id]
+  );
+  const [withSla] = await slaService.attachSla([rows[0]]);
+  return {
+    ...withSla,
+    assignments: assignments.rows,
+    statusHistory: statusHistory.rows,
+    escalations: escalations.rows,
+  };
 }
 
-async function listIncidents() {
-  const { rows } = await db.query("SELECT * FROM incidents ORDER BY created_at DESC");
-  return rows;
+/**
+ * Lists incidents (most urgent first), optionally filtered by status.
+ * `status` may be one status or a comma-separated list, e.g. "new,assigned".
+ * Capped at LIST_LIMIT rows until pagination is added.
+ */
+async function listIncidents({ status } = {}) {
+  const params = [];
+  let where = "";
+
+  const statuses = String(status || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (statuses.length) {
+    const invalid = statuses.filter((s) => !ALLOWED_STATUSES.includes(s));
+    if (invalid.length) {
+      throw new HttpError(
+        400,
+        `Invalid status filter: ${invalid.join(", ")}. Must be one of: ${ALLOWED_STATUSES.join(", ")}`
+      );
+    }
+    where = ` WHERE i.status IN (${statuses.map(() => "?").join(", ")})`;
+    params.push(...statuses);
+  }
+
+  const { rows } = await db.query(
+    `${INCIDENT_SELECT}${where} ORDER BY p.level ASC, i.created_at DESC LIMIT ${LIST_LIMIT}`,
+    params
+  );
+  return slaService.attachSla(rows);
 }
 
 module.exports = {

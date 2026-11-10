@@ -95,3 +95,19 @@ CREATE TABLE IF NOT EXISTS incident_status_history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_status_history_incident ON incident_status_history(incident_id);
+
+-- Escalation audit trail: one row each time an incident's priority is raised
+-- automatically (escalated_by is NULL for the system job) or, later, by a
+-- person. Append-only, like the other history tables. Kept separate from
+-- incident_status_history because a priority change is not a status change.
+CREATE TABLE IF NOT EXISTS incident_escalations (
+  id               TEXT PRIMARY KEY,
+  incident_id      TEXT NOT NULL REFERENCES incidents(id),
+  from_priority_id TEXT NOT NULL REFERENCES priorities(id),
+  to_priority_id   TEXT NOT NULL REFERENCES priorities(id),
+  reason           TEXT,
+  escalated_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  escalated_by     TEXT REFERENCES users(id)       -- null = automatic (system)
+);
+
+CREATE INDEX IF NOT EXISTS idx_escalations_incident ON incident_escalations(incident_id);

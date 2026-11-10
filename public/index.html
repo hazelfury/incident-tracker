@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Incident Dashboard</title>
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Incident Dashboard</h1>
+        <p class="subtitle">IT service desk overview</p>
+      </div>
+      <div class="topbar-actions">
+        <label class="toggle">
+          <input type="checkbox" id="autoRefresh" checked />
+          Auto-refresh
+        </label>
+        <button type="button" id="refreshBtn" class="btn">Refresh</button>
+        <span id="lastUpdated" class="muted small" role="status"></span>
+      </div>
+    </header>
+
+    <main>
+      <section id="summary" class="summary" aria-label="Summary"></section>
+
+      <section class="panel" aria-label="Filters">
+        <div class="filter-block">
+          <span class="filter-label" id="statusLabel">Status</span>
+          <div id="statusFilters" class="chips" role="group" aria-labelledby="statusLabel"></div>
+        </div>
+
+        <div class="filter-row">
+          <label class="field">
+            <span class="filter-label">Priority</span>
+            <select id="priorityFilter">
+              <option value="">All priorities</option>
+            </select>
+          </label>
+          <label class="field grow">
+            <span class="filter-label">Search</span>
+            <input type="search" id="search" placeholder="Title, assignee, category, reporter" autocomplete="off" />
+          </label>
+          <button type="button" id="clearFilters" class="btn btn-ghost">Clear filters</button>
+        </div>
+
+        <div class="legend" id="legend" aria-label="Priority colour legend"></div>
+      </section>
+
+      <p id="resultCount" class="muted" role="status"></p>
+      <div id="stateMessage"></div>
+
+      <div class="table-wrap" id="tableWrap" hidden>
+        <table class="incident-table" id="incidentTable">
+          <thead>
+            <tr>
+              <th scope="col">Priority</th>
+              <th scope="col">Incident</th>
+              <th scope="col">Status</th>
+              <th scope="col">Assignee</th>
+              <th scope="col">SLA</th>
+              <th scope="col">Created</th>
+            </tr>
+          </thead>
+          <tbody id="incidentRows"></tbody>
+        </table>
+      </div>
+    </main>
+
+    <dialog id="detailDialog" class="dialog" aria-labelledby="detailTitle">
+      <div class="dialog-head">
+        <h2 id="detailTitle">Incident</h2>
+        <button type="button" id="closeDialog" class="btn btn-ghost" aria-label="Close details">Close</button>
+      </div>
+      <div id="detailBody"></div>
+    </dialog>
+
+    <script src="js/dashboard-utils.js"></script>
+    <script src="js/app.js"></script>
+  </body>
+</html>
