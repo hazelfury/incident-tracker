@@ -2,17 +2,12 @@ const db = require("../config/database");
 const env = require("../config/env");
 const { evaluateSla } = require("../domain/slaCalculator");
 const clock = require("../utils/clock");
+const { placeholders } = require("../utils/sql");
+const { listPriorities } = require("./lookupService");
 
-const PRIORITY_COLUMNS = "id, name, level, sla_response_mins, sla_resolution_mins";
-
-function inClause(ids) {
-  return `(${ids.map(() => "?").join(", ")})`;
-}
-
-async function loadPriorities() {
-  const { rows } = await db.query(`SELECT ${PRIORITY_COLUMNS} FROM priorities ORDER BY level ASC`);
-  return rows; // most urgent first
-}
+// Priorities, most urgent first. The query lives in lookupService; this alias
+// keeps the name escalationService and the SLA code already import.
+const loadPriorities = listPriorities;
 
 function groupBy(rows, key) {
   const map = new Map();
@@ -23,57 +18,68 @@ function groupBy(rows, key) {
   return map;
 }
 
+// Only incidents that have ever been on hold matter to the SLA clock. For
+// those we keep every history row, because a hold ends at the row after it.
+function groupHoldHistory(historyRows) {
+  const byIncident = groupBy(historyRows, "incident_id");
+  for (const [incidentId, rows] of byIncident) {
+    if (!rows.some((row) => row.to_status === "on_hold")) byIncident.delete(incidentId);
+  }
+  return byIncident;
+}
+
 /**
  * Loads, for a set of incidents, everything the SLA calculation needs beyond
  * the incident row itself. Three queries total no matter how many incidents,
  * so listing 500 incidents doesn't mean 1,500 round trips.
  *
- *   historyByIncident         on-hold history rows (only incidents that have
- *                             ever been on hold appear here)
+ *   historyByIncident         status history (only incidents that have ever
+ *                             been on hold appear here)
  *   firstResponseByIncident   earliest assignment time per incident
  *   escalationsByIncident     escalation rows, oldest first
  */
 async function loadSlaContext(incidentIds) {
-  const ctx = {
-    historyByIncident: new Map(),
-    firstResponseByIncident: new Map(),
-    escalationsByIncident: new Map(),
-  };
-  if (!incidentIds.length) return ctx;
-
-  const ids = inClause(incidentIds);
-
-  const history = await db.query(
-    `SELECT incident_id, to_status, changed_at
-       FROM incident_status_history
-      WHERE incident_id IN ${ids}
-        AND incident_id IN (SELECT incident_id FROM incident_status_history WHERE to_status = 'on_hold')
-      ORDER BY changed_at`,
-    incidentIds
-  );
-  ctx.historyByIncident = groupBy(history.rows, "incident_id");
-
-  const firstResponse = await db.query(
-    `SELECT incident_id, MIN(assigned_at) AS first_response_at
-       FROM incident_assignments
-      WHERE incident_id IN ${ids}
-      GROUP BY incident_id`,
-    incidentIds
-  );
-  for (const row of firstResponse.rows) {
-    ctx.firstResponseByIncident.set(row.incident_id, row.first_response_at);
+  if (!incidentIds.length) {
+    return {
+      historyByIncident: new Map(),
+      firstResponseByIncident: new Map(),
+      escalationsByIncident: new Map(),
+    };
   }
 
-  const escalations = await db.query(
-    `SELECT incident_id, from_priority_id, escalated_at
-       FROM incident_escalations
-      WHERE incident_id IN ${ids}
-      ORDER BY escalated_at`,
-    incidentIds
-  );
-  ctx.escalationsByIncident = groupBy(escalations.rows, "incident_id");
+  const ids = placeholders(incidentIds.length);
 
-  return ctx;
+  const [history, firstResponse, escalations] = await Promise.all([
+    db.query(
+      `SELECT incident_id, to_status, changed_at
+         FROM incident_status_history
+        WHERE incident_id IN ${ids}
+        ORDER BY changed_at`,
+      incidentIds
+    ),
+    db.query(
+      `SELECT incident_id, MIN(assigned_at) AS first_response_at
+         FROM incident_assignments
+        WHERE incident_id IN ${ids}
+        GROUP BY incident_id`,
+      incidentIds
+    ),
+    db.query(
+      `SELECT incident_id, from_priority_id, escalated_at
+         FROM incident_escalations
+        WHERE incident_id IN ${ids}
+        ORDER BY escalated_at`,
+      incidentIds
+    ),
+  ]);
+
+  return {
+    historyByIncident: groupHoldHistory(history.rows),
+    firstResponseByIncident: new Map(
+      firstResponse.rows.map((row) => [row.incident_id, row.first_response_at])
+    ),
+    escalationsByIncident: groupBy(escalations.rows, "incident_id"),
+  };
 }
 
 /**

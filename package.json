@@ -7,11 +7,14 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "test": "jest --runInBand",
+    "test:coverage": "jest --runInBand --coverage",
     "db:migrate": "node scripts/migrate.js",
     "db:seed": "node scripts/seed.js",
     "db:demo": "node scripts/seed-demo.js",
     "sla:escalate": "node scripts/run-escalation.js",
-    "test:coverage": "jest --runInBand --coverage"
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "dependencies": {
     "better-sqlite3": "^11.1.2",
@@ -22,9 +25,18 @@
     "morgan": "^1.10.0",
     "pg": "^8.11.5"
   },
+  "overrides": {
+    "minimatch": "11.0.8",
+    "glob": "14.0.5"
+  },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "cross-env": "^10.1.0",
+    "eslint": "^10.14.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.14.0",
     "jest": "^30.5.2",
+    "prettier": "^3.10.0",
     "supertest": "^7.3.2"
   },
   "jest": {

@@ -1,38 +1,33 @@
 const crypto = require("crypto");
 const db = require("../config/database");
 const { HttpError } = require("../utils/httpError");
-const slaService = require("./slaService");
 const clock = require("../utils/clock");
+const { placeholders } = require("../utils/sql");
+const lifecycle = require("../domain/incidentLifecycle");
+const { MINUTE_MS } = require("../domain/slaCalculator");
+const slaService = require("./slaService");
 
-const ALLOWED_STATUSES = [
-  "new",
-  "assigned",
-  "in_progress",
-  "on_hold",
-  "resolved",
-  "closed",
-  "cancelled",
-];
+const LIST_LIMIT = 500;
 
-// Which statuses an incident may move to from its current one. Mirrors the
-// Week 1 lifecycle design: New -> Assigned -> In progress -> Resolved ->
-// Closed, with On hold / Cancelled / Reopen branches.
-const ALLOWED_TRANSITIONS = {
-  new: ["assigned", "cancelled"],
-  assigned: ["in_progress", "cancelled"],
-  in_progress: ["on_hold", "resolved", "cancelled"],
-  on_hold: ["in_progress"],
-  resolved: ["closed", "in_progress"], // reopen straight from resolved
-  closed: ["in_progress"], // reopened
-  cancelled: [],
-};
+// Tables that rowExists() is allowed to look in. The table name is spliced
+// into the SQL text (it can't be a bound parameter), so it must never come
+// from anything but this list.
+const REFERENCE_TABLES = new Set(["users", "categories", "teams"]);
 
 function nowIso() {
   return clock.now().toISOString();
 }
 
+/**
+ * Checks that a referenced row exists. An empty id means "optional foreign
+ * key not provided", which is treated as valid: required fields must be
+ * checked for presence by the caller.
+ */
 async function rowExists(table, id) {
-  if (!id) return true; // optional FK — nothing to check
+  if (!REFERENCE_TABLES.has(table)) {
+    throw new Error(`rowExists: unexpected table "${table}"`);
+  }
+  if (!id) return true;
   const { rows } = await db.query(`SELECT 1 FROM ${table} WHERE id = ?`, [id]);
   return rows.length > 0;
 }
@@ -40,6 +35,17 @@ async function rowExists(table, id) {
 async function fetchIncident(query, id) {
   const { rows } = await query("SELECT * FROM incidents WHERE id = ?", [id]);
   return rows[0] || null;
+}
+
+// The single place a status_history row is written, so every transition is
+// logged the same way. `from` is null for an incident's first row.
+function recordStatusChange(query, { incidentId, from, to, changedBy, changedAt, note = null }) {
+  return query(
+    `INSERT INTO incident_status_history
+       (id, incident_id, from_status, to_status, changed_by, changed_at, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [crypto.randomUUID(), incidentId, from, to, changedBy || null, changedAt, note]
+  );
 }
 
 /**
@@ -72,7 +78,8 @@ async function createIncident({ title, description, reporterId, categoryId, prio
   const id = crypto.randomUUID();
   const createdAt = nowIso();
   const slaMins = priorityResult.rows[0].sla_resolution_mins;
-  const dueAt = new Date(Date.parse(createdAt) + slaMins * 60000).toISOString();
+  // Derived from createdAt so the two timestamps can never drift apart.
+  const dueAt = new Date(Date.parse(createdAt) + slaMins * MINUTE_MS).toISOString();
 
   return db.withTransaction(async (query) => {
     await query(
@@ -81,11 +88,13 @@ async function createIncident({ title, description, reporterId, categoryId, prio
        VALUES (?, ?, ?, 'new', ?, ?, ?, ?, ?, ?)`,
       [id, title, description || null, reporterId, teamId || null, categoryId, priorityId, createdAt, dueAt]
     );
-    await query(
-      `INSERT INTO incident_status_history (id, incident_id, from_status, to_status, changed_by, changed_at)
-       VALUES (?, ?, NULL, 'new', ?, ?)`,
-      [crypto.randomUUID(), id, reporterId, createdAt]
-    );
+    await recordStatusChange(query, {
+      incidentId: id,
+      from: null,
+      to: "new",
+      changedBy: reporterId,
+      changedAt: createdAt,
+    });
     return fetchIncident(query, id);
   });
 }
@@ -93,7 +102,7 @@ async function createIncident({ title, description, reporterId, categoryId, prio
 /**
  * Assigns (or reassigns) an incident to a user. Closes out any currently
  * open incident_assignments row, opens a new one, updates incidents.assignee_id,
- * and — if the incident is still "new" — advances status to "assigned" with
+ * and, if the incident is still "new", advances status to "assigned" with
  * a matching status history row. All in one transaction.
  */
 async function assignIncident({ incidentId, assignedTo, assignedBy, reason }) {
@@ -112,7 +121,7 @@ async function assignIncident({ incidentId, assignedTo, assignedBy, reason }) {
     if (!incident) {
       throw new HttpError(404, `Incident not found: ${incidentId}`);
     }
-    if (incident.status === "cancelled" || incident.status === "closed") {
+    if (!lifecycle.canAssign(incident.status)) {
       throw new HttpError(
         409,
         `Cannot assign an incident with status "${incident.status}"`
@@ -132,7 +141,7 @@ async function assignIncident({ incidentId, assignedTo, assignedBy, reason }) {
       [crypto.randomUUID(), incidentId, assignedTo, assignedBy || null, assignedAt, reason || null]
     );
 
-    const nextStatus = incident.status === "new" ? "assigned" : incident.status;
+    const nextStatus = lifecycle.statusAfterAssignment(incident.status);
 
     await query(
       `UPDATE incidents SET assignee_id = ?, assigned_at = ?, status = ? WHERE id = ?`,
@@ -140,11 +149,13 @@ async function assignIncident({ incidentId, assignedTo, assignedBy, reason }) {
     );
 
     if (nextStatus !== incident.status) {
-      await query(
-        `INSERT INTO incident_status_history (id, incident_id, from_status, to_status, changed_by, changed_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [crypto.randomUUID(), incidentId, incident.status, nextStatus, assignedBy || null, assignedAt]
-      );
+      await recordStatusChange(query, {
+        incidentId,
+        from: incident.status,
+        to: nextStatus,
+        changedBy: assignedBy,
+        changedAt: assignedAt,
+      });
     }
 
     return fetchIncident(query, incidentId);
@@ -152,17 +163,16 @@ async function assignIncident({ incidentId, assignedTo, assignedBy, reason }) {
 }
 
 /**
- * Transitions an incident's status, validating against ALLOWED_TRANSITIONS,
+ * Transitions an incident's status, validating against the lifecycle rules,
  * stamping resolved_at / closed_at as appropriate, and logging the change
- * to incident_status_history. This is also where resolution timestamps get
- * set — resolved_at the moment status becomes "resolved", closed_at the
- * moment it becomes "closed", both cleared again on reopen.
+ * to incident_status_history. Moving to "assigned" is not allowed here: only
+ * the assignment endpoint may do that, because it also sets the assignee.
  */
 async function updateStatus({ incidentId, toStatus, changedBy, note }) {
-  if (!ALLOWED_STATUSES.includes(toStatus)) {
+  if (!lifecycle.isValidStatus(toStatus)) {
     throw new HttpError(
       400,
-      `Invalid status "${toStatus}". Must be one of: ${ALLOWED_STATUSES.join(", ")}`
+      `Invalid status "${toStatus}". Must be one of: ${lifecycle.STATUSES.join(", ")}`
     );
   }
   if (!(await rowExists("users", changedBy))) {
@@ -175,8 +185,8 @@ async function updateStatus({ incidentId, toStatus, changedBy, note }) {
       throw new HttpError(404, `Incident not found: ${incidentId}`);
     }
 
-    const allowedNext = ALLOWED_TRANSITIONS[incident.status] || [];
-    if (!allowedNext.includes(toStatus)) {
+    if (!lifecycle.canTransition(incident.status, toStatus)) {
+      const allowedNext = lifecycle.allowedNext(incident.status);
       throw new HttpError(
         409,
         `Cannot move incident from "${incident.status}" to "${toStatus}". ` +
@@ -193,20 +203,26 @@ async function updateStatus({ incidentId, toStatus, changedBy, note }) {
     }
 
     const changedAt = nowIso();
-    const reopening = toStatus === "in_progress" && ["resolved", "closed"].includes(incident.status);
-
-    const resolvedAt = toStatus === "resolved" ? changedAt : reopening ? null : incident.resolved_at;
-    const closedAt = toStatus === "closed" ? changedAt : reopening ? null : incident.closed_at;
+    const { resolved_at, closed_at } = lifecycle.timestampsForTransition({
+      from: incident.status,
+      to: toStatus,
+      now: changedAt,
+      resolved_at: incident.resolved_at,
+      closed_at: incident.closed_at,
+    });
 
     await query(
       `UPDATE incidents SET status = ?, resolved_at = ?, closed_at = ? WHERE id = ?`,
-      [toStatus, resolvedAt, closedAt, incidentId]
+      [toStatus, resolved_at, closed_at, incidentId]
     );
-    await query(
-      `INSERT INTO incident_status_history (id, incident_id, from_status, to_status, changed_by, changed_at, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [crypto.randomUUID(), incidentId, incident.status, toStatus, changedBy || null, changedAt, note || null]
-    );
+    await recordStatusChange(query, {
+      incidentId,
+      from: incident.status,
+      to: toStatus,
+      changedBy,
+      changedAt,
+      note: note || null,
+    });
 
     return fetchIncident(query, incidentId);
   });
@@ -229,8 +245,6 @@ const INCIDENT_SELECT = `
   LEFT JOIN teams t ON t.id = i.team_id
   LEFT JOIN users a ON a.id = i.assignee_id
   LEFT JOIN users r ON r.id = i.reporter_id`;
-
-const LIST_LIMIT = 500;
 
 async function getIncidentById(id) {
   const { rows } = await db.query(`${INCIDENT_SELECT} WHERE i.id = ?`, [id]);
@@ -293,14 +307,14 @@ async function listIncidents({ status } = {}) {
     .filter(Boolean);
 
   if (statuses.length) {
-    const invalid = statuses.filter((s) => !ALLOWED_STATUSES.includes(s));
+    const invalid = statuses.filter((s) => !lifecycle.isValidStatus(s));
     if (invalid.length) {
       throw new HttpError(
         400,
-        `Invalid status filter: ${invalid.join(", ")}. Must be one of: ${ALLOWED_STATUSES.join(", ")}`
+        `Invalid status filter: ${invalid.join(", ")}. Must be one of: ${lifecycle.STATUSES.join(", ")}`
       );
     }
-    where = ` WHERE i.status IN (${statuses.map(() => "?").join(", ")})`;
+    where = ` WHERE i.status IN ${placeholders(statuses.length)}`;
     params.push(...statuses);
   }
 
@@ -312,8 +326,10 @@ async function listIncidents({ status } = {}) {
 }
 
 module.exports = {
-  ALLOWED_STATUSES,
-  ALLOWED_TRANSITIONS,
+  // Kept as aliases so existing imports keep working; the source of truth is
+  // domain/incidentLifecycle.js.
+  ALLOWED_STATUSES: lifecycle.STATUSES,
+  ALLOWED_TRANSITIONS: lifecycle.TRANSITIONS,
   createIncident,
   assignIncident,
   updateStatus,

@@ -58,6 +58,10 @@ describe("holdPeriods", () => {
   it("returns nothing when there was never a hold", () => {
     expect(holdPeriods([hist("new", 0), hist("assigned", 1)], at(5).getTime(), "assigned")).toEqual([]);
   });
+
+  it("throws when now is missing", () => {
+    expect(() => evaluateSla({ incident: { status: "new", created_at: "2026-03-02T09:00:00Z", due_at: "2026-03-02T17:00:00Z" } })).toThrow(TypeError);
+  });
 });
 
 describe("overlapMs", () => {

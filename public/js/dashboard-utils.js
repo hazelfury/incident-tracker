@@ -7,6 +7,14 @@
     root.DashboardUtils = factory();
   }
 })(typeof self !== "undefined" ? self : this, function () {
+  const MINUTES_PER_HOUR = 60;
+  const MINUTES_PER_DAY = 1440;
+  const MS_PER_MINUTE = 60000;
+  const MS_PER_HOUR = 3600000;
+
+  // The browser can't import the backend, so these two lists mirror
+  // src/domain/incidentLifecycle.js. tests/dashboardUtils.sync.test.js fails
+  // if they drift apart.
   const STATUS_ORDER = [
     "new",
     "assigned",
@@ -16,6 +24,9 @@
     "closed",
     "cancelled",
   ];
+
+  // Statuses where no more work is expected, so SLA timers stop mattering.
+  const INACTIVE_STATUSES = ["resolved", "closed", "cancelled"];
 
   const STATUS_LABELS = {
     new: "New",
@@ -27,8 +38,8 @@
     cancelled: "Cancelled",
   };
 
-  // Statuses where no more work is expected, so SLA timers stop mattering.
-  const INACTIVE_STATUSES = ["resolved", "closed", "cancelled"];
+  // A fresh object each time, so callers can't change a shared one by accident.
+  const noInfo = () => ({ text: "—", tone: "none" });
 
   function statusLabel(status) {
     return STATUS_LABELS[status] || String(status || "Unknown");
@@ -65,6 +76,13 @@
     return incident.sla && incident.sla.resolution ? incident.sla.resolution : null;
   }
 
+  // The date the SLA is judged against: the server's pause-adjusted due date
+  // when present, otherwise the stored due_at.
+  function effectiveDueDate(incident) {
+    const sla = resolutionSla(incident);
+    return parseDate(sla ? sla.due_at : incident.due_at);
+  }
+
   function isOverdue(incident, now = new Date()) {
     if (!isActive(incident)) return false;
     const sla = resolutionSla(incident);
@@ -79,49 +97,47 @@
   }
 
   function formatDuration(ms) {
-    const mins = Math.floor(Math.abs(ms) / 60000);
+    const mins = Math.floor(Math.abs(ms) / MS_PER_MINUTE);
     if (mins < 1) return "<1m";
-    const d = Math.floor(mins / 1440);
-    const h = Math.floor((mins % 1440) / 60);
-    const m = mins % 60;
+    const d = Math.floor(mins / MINUTES_PER_DAY);
+    const h = Math.floor((mins % MINUTES_PER_DAY) / MINUTES_PER_HOUR);
+    const m = mins % MINUTES_PER_HOUR;
     if (d > 0) return h ? `${d}d ${h}h` : `${d}d`;
     if (h > 0) return m ? `${h}h ${m}m` : `${h}h`;
     return `${m}m`;
   }
 
-  // What to show in the SLA column, and a "tone" the UI turns into a colour.
-  function dueInfo(incident, now = new Date()) {
-    const sla = resolutionSla(incident);
-    if (sla) {
-      if (sla.status === "not_applicable") return { text: "—", tone: "none" };
-      if (!isActive(incident)) {
-        return sla.status === "met"
-          ? { text: "Resolved on time", tone: "done" }
-          : { text: "Resolved late", tone: "late" };
-      }
-      if (sla.paused) {
-        return sla.breached
-          ? { text: "Breached · on hold", tone: "overdue" }
-          : { text: "Paused (on hold)", tone: "paused" };
-      }
-      const slaDue = parseDate(sla.due_at);
-      const remaining = (slaDue ? slaDue.getTime() : now.getTime() + sla.remaining_ms) - now.getTime();
-      if (remaining < 0) {
-        return { text: `Breached by ${formatDuration(remaining)}`, tone: "overdue" };
-      }
-      return {
-        text: `Due in ${formatDuration(remaining)}`,
-        tone: sla.status === "at_risk" || remaining < 3600000 ? "soon" : "ok",
-      };
+  // SLA column text and tone, from the server's evaluation.
+  function dueInfoFromSla(incident, sla, now) {
+    if (sla.status === "not_applicable") return noInfo();
+    if (!isActive(incident)) {
+      return sla.status === "met"
+        ? { text: "Resolved on time", tone: "done" }
+        : { text: "Resolved late", tone: "late" };
     }
+    if (sla.paused) {
+      return sla.breached
+        ? { text: "Breached · on hold", tone: "overdue" }
+        : { text: "Paused (on hold)", tone: "paused" };
+    }
+    const slaDue = parseDate(sla.due_at);
+    const remaining = (slaDue ? slaDue.getTime() : now.getTime() + sla.remaining_ms) - now.getTime();
+    if (remaining < 0) {
+      return { text: `Breached by ${formatDuration(remaining)}`, tone: "overdue" };
+    }
+    return {
+      text: `Due in ${formatDuration(remaining)}`,
+      tone: sla.status === "at_risk" || remaining < MS_PER_HOUR ? "soon" : "ok",
+    };
+  }
 
+  // Fallback for incidents that carry no server-side SLA evaluation.
+  function dueInfoFromDueAt(incident, now) {
     const due = parseDate(incident.due_at);
-    if (incident.status === "cancelled" || !due) {
-      return { text: "—", tone: "none" };
-    }
+    if (incident.status === "cancelled" || !due) return noInfo();
     if (!isActive(incident)) {
       const resolved = parseDate(incident.resolved_at);
-      if (!resolved) return { text: "—", tone: "none" };
+      if (!resolved) return noInfo();
       return resolved.getTime() <= due.getTime()
         ? { text: "Resolved on time", tone: "done" }
         : { text: "Resolved late", tone: "late" };
@@ -132,14 +148,20 @@
     }
     return {
       text: `Due in ${formatDuration(diff)}`,
-      tone: diff < 3600000 ? "soon" : "ok",
+      tone: diff < MS_PER_HOUR ? "soon" : "ok",
     };
+  }
+
+  // What to show in the SLA column, and a "tone" the UI turns into a colour.
+  function dueInfo(incident, now = new Date()) {
+    const sla = resolutionSla(incident);
+    return sla ? dueInfoFromSla(incident, sla, now) : dueInfoFromDueAt(incident, now);
   }
 
   // Response SLA (time to first assignment) as text + tone, from the server's evaluation.
   function responseInfo(incident, now = new Date()) {
     const r = incident.sla && incident.sla.response;
-    if (!r || r.status === "not_applicable") return { text: "—", tone: "none" };
+    if (!r || r.status === "not_applicable") return noInfo();
     if (r.status === "met") return { text: "Responded on time", tone: "done" };
     if (r.status === "breached") {
       return r.responded_at
@@ -201,8 +223,8 @@
       if (pa !== pb) return pa - pb;
 
       if (ra === 0) {
-        const da = parseDate(a.due_at);
-        const db = parseDate(b.due_at);
+        const da = effectiveDueDate(a);
+        const db = effectiveDueDate(b);
         if (da && db && da.getTime() !== db.getTime()) {
           return da.getTime() - db.getTime();
         }
@@ -240,6 +262,7 @@
     isActive,
     priorityClass,
     parseDate,
+    effectiveDueDate,
     isOverdue,
     formatDuration,
     dueInfo,

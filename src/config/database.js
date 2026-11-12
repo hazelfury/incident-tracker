@@ -6,6 +6,8 @@ const env = require("./env");
 let pgPool = null;
 let sqliteDb = null;
 
+const usePostgres = () => env.dbClient === "postgres";
+
 function initPostgres() {
   if (pgPool) return pgPool;
   if (!env.databaseUrl) {
@@ -47,7 +49,7 @@ function initSqlite() {
 }
 
 function init() {
-  return env.dbClient === "postgres" ? initPostgres() : initSqlite();
+  return usePostgres() ? initPostgres() : initSqlite();
 }
 
 // node-postgres needs $1, $2, ... placeholders; better-sqlite3 needs ?.
@@ -58,6 +60,24 @@ function toPgPlaceholders(text) {
   return text.replace(/\?/g, () => `$${++i}`);
 }
 
+// Runs one statement on a better-sqlite3 connection and returns { rows }.
+// stmt.reader is true for anything that returns rows (SELECT, WITH ... SELECT,
+// INSERT ... RETURNING), so those behave the same as they do on Postgres.
+function runSqlite(db, text, params = []) {
+  const stmt = db.prepare(text);
+  if (stmt.reader) {
+    return { rows: stmt.all(...params) };
+  }
+  stmt.run(...params);
+  return { rows: [] };
+}
+
+// Runs one statement on a pg Pool or checked-out client and returns { rows }.
+async function runPg(target, text, params = []) {
+  const result = await target.query(toPgPlaceholders(text), params);
+  return { rows: result.rows };
+}
+
 /**
  * Unified query interface so route/service code doesn't need to branch on
  * which database is behind it. Always resolves to { rows }.
@@ -66,17 +86,9 @@ function toPgPlaceholders(text) {
  * promise so callers can `await` regardless of dbClient.
  */
 async function query(text, params = []) {
-  if (env.dbClient === "postgres") {
-    const pool = initPostgres();
-    const result = await pool.query(toPgPlaceholders(text), params);
-    return { rows: result.rows };
-  }
-
-  const db = initSqlite();
-  const stmt = db.prepare(text);
-  const isSelect = /^\s*select/i.test(text);
-  const rows = isSelect ? stmt.all(...params) : (stmt.run(...params), []);
-  return { rows };
+  return usePostgres()
+    ? runPg(initPostgres(), text, params)
+    : runSqlite(initSqlite(), text, params);
 }
 
 /**
@@ -85,7 +97,7 @@ async function query(text, params = []) {
  * with a no-op release() so calling code doesn't need an if/else.
  */
 async function getClient() {
-  if (env.dbClient === "postgres") {
+  if (usePostgres()) {
     const pool = initPostgres();
     const client = await pool.connect();
     return { client, release: () => client.release() };
@@ -94,28 +106,12 @@ async function getClient() {
   return { client: db, release: () => {} };
 }
 
-/**
- * Runs `fn` inside a BEGIN/COMMIT (or ROLLBACK on error) block and hands it
- * a `query(text, params)` function bound to that single connection, using
- * the same "?" placeholder convention as the module-level query() above.
- * Use this whenever an operation needs more than one write to stay atomic
- * (e.g. reassigning an incident touches incidents, incident_assignments,
- * and incident_status_history together).
- */
-async function withTransaction(fn) {
-  const isPg = env.dbClient === "postgres";
+async function runTransaction(fn) {
+  const isPg = usePostgres();
   const { client, release } = await getClient();
 
-  const txQuery = async (text, params = []) => {
-    if (isPg) {
-      const result = await client.query(toPgPlaceholders(text), params);
-      return { rows: result.rows };
-    }
-    const stmt = client.prepare(text);
-    const isSelect = /^\s*select/i.test(text);
-    const rows = isSelect ? stmt.all(...params) : (stmt.run(...params), []);
-    return { rows };
-  };
+  const txQuery = async (text, params = []) =>
+    isPg ? runPg(client, text, params) : runSqlite(client, text, params);
 
   const exec = (sql) => (isPg ? client.query(sql) : client.exec(sql));
 
@@ -136,12 +132,37 @@ async function withTransaction(fn) {
   }
 }
 
+// SQLite has one shared connection, so two overlapping transactions would
+// both issue BEGIN on it. Queue them so they run one at a time. (Postgres
+// gives each transaction its own pooled client and needs no queue.)
+// Note: a transaction callback must not start another withTransaction() call,
+// or it would wait on itself.
+let sqliteTransactionQueue = Promise.resolve();
+
+function runExclusive(task) {
+  const result = sqliteTransactionQueue.then(task);
+  sqliteTransactionQueue = result.catch(() => {});
+  return result;
+}
+
+/**
+ * Runs `fn` inside a BEGIN/COMMIT (or ROLLBACK on error) block and hands it
+ * a `query(text, params)` function bound to that single connection, using
+ * the same "?" placeholder convention as the module-level query() above.
+ * Use this whenever an operation needs more than one write to stay atomic
+ * (e.g. reassigning an incident touches incidents, incident_assignments,
+ * and incident_status_history together).
+ */
+function withTransaction(fn) {
+  return usePostgres() ? runTransaction(fn) : runExclusive(() => runTransaction(fn));
+}
+
 /**
  * Runs a raw, multi-statement SQL script (schema migrations, seed files).
- * Not parameterized and not for request-path use — query() above is for that.
+ * Not parameterized and not for request-path use; query() above is for that.
  */
 async function runScript(sql) {
-  if (env.dbClient === "postgres") {
+  if (usePostgres()) {
     const pool = initPostgres();
     await pool.query(sql);
     return;

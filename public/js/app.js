@@ -3,6 +3,7 @@
 
   const U = window.DashboardUtils;
   const REFRESH_MS = 30000;
+  const MS_PER_MINUTE = 60000;
 
   const state = {
     incidents: [],
@@ -17,6 +18,7 @@
 
   let loading = false;
   let refreshTimer = null;
+  let detailRequestId = 0; // lets a newer details request win over a slower older one
 
   const $ = (id) => document.getElementById(id);
 
@@ -90,7 +92,11 @@
     clearInterval(refreshTimer);
     refreshTimer = null;
     if ($("autoRefresh").checked) {
-      refreshTimer = setInterval(load, REFRESH_MS);
+      // Skip ticks while the tab is hidden; the visibilitychange handler
+      // below refreshes as soon as the user comes back.
+      refreshTimer = setInterval(() => {
+        if (!document.hidden) load();
+      }, REFRESH_MS);
     }
   }
 
@@ -146,7 +152,7 @@
           "span",
           { class: "legend-item" },
           el("span", { class: `badge prio-badge ${U.priorityClass(p.level)}` }, p.name),
-          el("span", { class: "legend-note" }, `resolve within ${U.formatDuration(p.sla_resolution_mins * 60000)}`)
+          el("span", { class: "legend-note" }, `resolve within ${U.formatDuration(p.sla_resolution_mins * MS_PER_MINUTE)}`)
         )
       );
     });
@@ -327,6 +333,7 @@
   // ---------- Detail dialog ----------
 
   async function openDetails(id) {
+    const requestId = ++detailRequestId;
     const dialog = $("detailDialog");
     const body = $("detailBody");
     $("detailTitle").textContent = "Incident";
@@ -340,11 +347,20 @@
 
     try {
       const i = await fetchJson(`/api/incidents/${encodeURIComponent(id)}`);
+      if (requestId !== detailRequestId) return; // a newer details request replaced this one
       renderDetails(i);
     } catch (err) {
+      if (requestId !== detailRequestId) return;
       clear(body);
       body.append(el("p", { class: "banner", role: "alert" }, err.message));
     }
+  }
+
+  // A list of events, or a muted message when there are none. `describe`
+  // returns the pieces of text for one item.
+  function renderTimeline(items, emptyText, describe) {
+    if (!items || !items.length) return el("p", { class: "muted small" }, emptyText);
+    return el("ol", { class: "timeline" }, items.map((item) => el("li", null, ...describe(item))));
   }
 
   function renderDetails(i) {
@@ -382,55 +398,27 @@
         fact("Closed", U.formatDateTime(i.closed_at))
       ),
       el("h3", null, "Assignment history"),
-      i.assignments && i.assignments.length
-        ? el(
-            "ol",
-            { class: "timeline" },
-            i.assignments.map((a) =>
-              el(
-                "li",
-                null,
-                `${a.assigned_to_name}`,
-                a.assigned_by_name ? ` (assigned by ${a.assigned_by_name})` : "",
-                ` · ${U.formatDateTime(a.assigned_at)}`,
-                a.unassigned_at ? ` → until ${U.formatDateTime(a.unassigned_at)}` : " → current",
-                a.reason ? ` · ${a.reason}` : ""
-              )
-            )
-          )
-        : el("p", { class: "muted small" }, "Not assigned yet."),
+      renderTimeline(i.assignments, "Not assigned yet.", (a) => [
+        `${a.assigned_to_name}`,
+        a.assigned_by_name ? ` (assigned by ${a.assigned_by_name})` : "",
+        ` · ${U.formatDateTime(a.assigned_at)}`,
+        a.unassigned_at ? ` → until ${U.formatDateTime(a.unassigned_at)}` : " → current",
+        a.reason ? ` · ${a.reason}` : "",
+      ]),
       el("h3", null, "Status history"),
-      el(
-        "ol",
-        { class: "timeline" },
-        (i.statusHistory || []).map((h) =>
-          el(
-            "li",
-            null,
-            h.from_status ? `${U.statusLabel(h.from_status)} → ${U.statusLabel(h.to_status)}` : `Created as ${U.statusLabel(h.to_status)}`,
-            h.changed_by_name ? ` · ${h.changed_by_name}` : "",
-            ` · ${U.formatDateTime(h.changed_at)}`,
-            h.note ? ` · “${h.note}”` : ""
-          )
-        )
-      ),
+      renderTimeline(i.statusHistory, "No status changes recorded.", (h) => [
+        h.from_status ? `${U.statusLabel(h.from_status)} → ${U.statusLabel(h.to_status)}` : `Created as ${U.statusLabel(h.to_status)}`,
+        h.changed_by_name ? ` · ${h.changed_by_name}` : "",
+        ` · ${U.formatDateTime(h.changed_at)}`,
+        h.note ? ` · “${h.note}”` : "",
+      ]),
       el("h3", null, "Escalation history"),
-      i.escalations && i.escalations.length
-        ? el(
-            "ol",
-            { class: "timeline" },
-            i.escalations.map((e) =>
-              el(
-                "li",
-                null,
-                `${e.from_priority_name} → ${e.to_priority_name}`,
-                ` · ${e.escalated_by_name || "Automatic"}`,
-                ` · ${U.formatDateTime(e.escalated_at)}`,
-                e.reason ? ` · ${e.reason}` : ""
-              )
-            )
-          )
-        : el("p", { class: "muted small" }, "Never escalated.")
+      renderTimeline(i.escalations, "Never escalated.", (e) => [
+        `${e.from_priority_name} → ${e.to_priority_name}`,
+        ` · ${e.escalated_by_name || "Automatic"}`,
+        ` · ${U.formatDateTime(e.escalated_at)}`,
+        e.reason ? ` · ${e.reason}` : "",
+      ])
     );
   }
 
@@ -438,6 +426,9 @@
 
   $("refreshBtn").addEventListener("click", load);
   $("autoRefresh").addEventListener("change", scheduleRefresh);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && $("autoRefresh").checked) load();
+  });
   $("clearFilters").addEventListener("click", clearFilters);
   $("priorityFilter").addEventListener("change", (e) => {
     state.priorityId = e.target.value;

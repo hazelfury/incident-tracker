@@ -1,7 +1,10 @@
-require("dotenv").config();
 const crypto = require("crypto");
 const db = require("../src/config/database");
 const incidentService = require("../src/services/incidentService");
+const { MINUTE_MS } = require("../src/domain/slaCalculator");
+const { runCli } = require("./lib/runCli");
+
+const MS_PER_HOUR = 60 * MINUTE_MS;
 
 // Sample incidents covering every priority and status, with a spread of ages
 // so the dashboard shows overdue, due-soon and on-time cases.
@@ -63,7 +66,7 @@ async function getOrCreateUser(name, email, role) {
 // after creation, so most incidents were picked up in time; `lateResponse`
 // incidents are picked up at 2.5x the target instead, to show a missed response SLA.
 async function retime(incidentId, demo, priority) {
-  const ageMs = demo.ageHours * 3600000;
+  const ageMs = demo.ageHours * MS_PER_HOUR;
   const createdMs = Date.now() - ageMs;
   const finalMs = ageMs * 0.85; // last event happens at 85% of the incident's age
   const iso = (ms) => new Date(ms).toISOString();
@@ -79,7 +82,7 @@ async function retime(incidentId, demo, priority) {
   const wasAssigned = history.length > 1 && history[1].to_status === "assigned";
   if (wasAssigned) {
     const factor = demo.lateResponse ? 2.5 : 0.5;
-    const assignedOffset = Math.min(priority.sla_response_mins * factor * 60000, ageMs * 0.3);
+    const assignedOffset = Math.min(priority.sla_response_mins * factor * MINUTE_MS, ageMs * 0.3);
     const rest = history.length - 2; // events after "assigned"
     offsets.push(0, assignedOffset);
     for (let k = 1; k <= rest; k++) {
@@ -105,7 +108,7 @@ async function retime(incidentId, demo, priority) {
     "UPDATE incidents SET created_at = ?, due_at = ?, assigned_at = ?, resolved_at = ?, closed_at = ? WHERE id = ?",
     [
       iso(createdMs),
-      iso(createdMs + priority.sla_resolution_mins * 60000),
+      iso(createdMs + priority.sla_resolution_mins * MINUTE_MS),
       at.assigned !== undefined ? iso(at.assigned) : null,
       at.resolved !== undefined ? iso(at.resolved) : null,
       at.closed !== undefined ? iso(at.closed) : null,
@@ -115,8 +118,6 @@ async function retime(incidentId, demo, priority) {
 }
 
 async function main() {
-  db.init();
-
   const priorities = (await db.query("SELECT id, level, sla_response_mins, sla_resolution_mins FROM priorities")).rows;
   const categories = (await db.query("SELECT id, name FROM categories")).rows;
   if (!priorities.length || !categories.length) {
@@ -179,10 +180,6 @@ async function main() {
   }
 
   console.log(`Demo data: ${created} incidents created, ${skipped} already present.`);
-  await db.close();
 }
 
-main().catch((err) => {
-  console.error(err.message);
-  process.exitCode = 1;
-});
+runCli(main, { label: "Demo seed" });

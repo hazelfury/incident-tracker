@@ -19,7 +19,7 @@
 const MINUTE_MS = 60000;
 const DEFAULT_AT_RISK_PERCENT = 80;
 
-const FINISHED_STATUSES = ["resolved", "closed"];
+const { FINISHED_STATUSES } = require("./incidentLifecycle");
 
 // Accepts a Date, epoch ms, an ISO string, or SQLite's zone-less
 // "YYYY-MM-DD HH:MM:SS" (UTC) default. Returns epoch ms, or null if unusable.
@@ -167,10 +167,13 @@ function evaluateSla({
   responseTargetMins = null,
   history = [],
   firstResponseAt = null,
-  now = new Date(),
+  now,
   atRiskPercent = DEFAULT_AT_RISK_PERCENT,
 }) {
   const nowMs = toMs(now);
+  if (nowMs === null) {
+    throw new TypeError("evaluateSla: `now` is required (Date, epoch ms or ISO string)");
+  }
   const resolution = evaluateResolution({ incident, history, now: nowMs, atRiskPercent });
   const response = evaluateResponse({ incident, responseTargetMins, firstResponseAt, now: nowMs });
 
