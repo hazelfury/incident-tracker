@@ -8,15 +8,7 @@
 //                       on_hold
 //   cancelled: reachable from new, assigned and in_progress; nothing leaves it.
 
-const STATUSES = Object.freeze([
-  "new",
-  "assigned",
-  "in_progress",
-  "on_hold",
-  "resolved",
-  "closed",
-  "cancelled",
-]);
+const STATUSES = Object.freeze(["new", "assigned", "in_progress", "on_hold", "resolved", "closed", "cancelled"]);
 
 // Which statuses an incident may move to from each status.
 const TRANSITIONS = Object.freeze({
@@ -35,13 +27,7 @@ const INACTIVE_STATUSES = Object.freeze(["resolved", "closed", "cancelled"]);
 
 // An incident in any of these must have an assignee: it can only get here by
 // being assigned first.
-const ASSIGNEE_REQUIRED_STATUSES = Object.freeze([
-  "assigned",
-  "in_progress",
-  "on_hold",
-  "resolved",
-  "closed",
-]);
+const ASSIGNEE_REQUIRED_STATUSES = Object.freeze(["assigned", "in_progress", "on_hold", "resolved", "closed"]);
 
 function isValidStatus(status) {
   return STATUSES.includes(status);
@@ -91,8 +77,8 @@ function isReopen(from, to) {
 function timestampsForTransition({ from, to, now, resolved_at = null, closed_at = null }) {
   const reopening = isReopen(from, to);
   return {
-    resolved_at: to === "resolved" ? now : reopening ? null : resolved_at ?? null,
-    closed_at: to === "closed" ? now : reopening ? null : closed_at ?? null,
+    resolved_at: to === "resolved" ? now : reopening ? null : (resolved_at ?? null),
+    closed_at: to === "closed" ? now : reopening ? null : (closed_at ?? null),
   };
 }
 

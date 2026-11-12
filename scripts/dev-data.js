@@ -6,10 +6,13 @@ async function getOrCreateUser(name, email, role) {
   const existing = await db.query("SELECT id FROM users WHERE email = ?", [email]);
   if (existing.rows.length) return existing.rows[0].id;
   const id = crypto.randomUUID();
-  await db.query(
-    "INSERT INTO users (id, name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)",
-    [id, name, email, "dev-only-hash", role]
-  );
+  await db.query("INSERT INTO users (id, name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)", [
+    id,
+    name,
+    email,
+    "dev-only-hash",
+    role,
+  ]);
   return id;
 }
 

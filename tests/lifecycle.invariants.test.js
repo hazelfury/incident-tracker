@@ -88,30 +88,60 @@ async function runWalk(seed, stepCount) {
     check(SPEC_STATUSES.includes(incident.status), `${where}: status "${incident.status}" is not a real status`);
 
     // History is a gap-free chain that ends at the current status.
-    check(history.length === expectedHistoryLength, `${where}: expected ${expectedHistoryLength} history rows, found ${history.length}`);
-    check(history[0].from_status === null && history[0].to_status === "new", `${where}: first history row should be null -> new`);
+    check(
+      history.length === expectedHistoryLength,
+      `${where}: expected ${expectedHistoryLength} history rows, found ${history.length}`
+    );
+    check(
+      history[0].from_status === null && history[0].to_status === "new",
+      `${where}: first history row should be null -> new`
+    );
     for (let i = 1; i < history.length; i++) {
-      check(history[i].from_status === history[i - 1].to_status, `${where}: history row ${i} starts at "${history[i].from_status}" but the previous ended at "${history[i - 1].to_status}"`);
-      check(history[i].changed_at > history[i - 1].changed_at, `${where}: history row ${i} is not later than row ${i - 1}`);
+      check(
+        history[i].from_status === history[i - 1].to_status,
+        `${where}: history row ${i} starts at "${history[i].from_status}" but the previous ended at "${history[i - 1].to_status}"`
+      );
+      check(
+        history[i].changed_at > history[i - 1].changed_at,
+        `${where}: history row ${i} is not later than row ${i - 1}`
+      );
     }
-    check(history[history.length - 1].to_status === incident.status, `${where}: last history row says "${history[history.length - 1].to_status}" but status is "${incident.status}"`);
+    check(
+      history[history.length - 1].to_status === incident.status,
+      `${where}: last history row says "${history[history.length - 1].to_status}" but status is "${incident.status}"`
+    );
 
     // Every transition in the chain is one the rules allow.
     for (let i = 1; i < history.length; i++) {
-      check(SPEC_TRANSITIONS[history[i].from_status].includes(history[i].to_status), `${where}: history contains the illegal move ${history[i].from_status} -> ${history[i].to_status}`);
+      check(
+        SPEC_TRANSITIONS[history[i].from_status].includes(history[i].to_status),
+        `${where}: history contains the illegal move ${history[i].from_status} -> ${history[i].to_status}`
+      );
     }
 
     // Resolution timestamps exist exactly when they should, and match the history.
     const isFinished = SPEC_FINISHED.includes(incident.status);
-    check((incident.resolved_at !== null) === isFinished, `${where}: resolved_at is ${incident.resolved_at} while status is "${incident.status}"`);
-    check((incident.closed_at !== null) === (incident.status === "closed"), `${where}: closed_at is ${incident.closed_at} while status is "${incident.status}"`);
+    check(
+      (incident.resolved_at !== null) === isFinished,
+      `${where}: resolved_at is ${incident.resolved_at} while status is "${incident.status}"`
+    );
+    check(
+      (incident.closed_at !== null) === (incident.status === "closed"),
+      `${where}: closed_at is ${incident.closed_at} while status is "${incident.status}"`
+    );
     if (incident.resolved_at !== null) {
       const lastResolved = [...history].reverse().find((h) => h.to_status === "resolved");
-      check(lastResolved && lastResolved.changed_at === incident.resolved_at, `${where}: resolved_at does not match the latest "resolved" history row`);
+      check(
+        lastResolved && lastResolved.changed_at === incident.resolved_at,
+        `${where}: resolved_at does not match the latest "resolved" history row`
+      );
     }
     if (incident.closed_at !== null) {
       const lastClosed = [...history].reverse().find((h) => h.to_status === "closed");
-      check(lastClosed && lastClosed.changed_at === incident.closed_at, `${where}: closed_at does not match the latest "closed" history row`);
+      check(
+        lastClosed && lastClosed.changed_at === incident.closed_at,
+        `${where}: closed_at does not match the latest "closed" history row`
+      );
       check(incident.closed_at >= incident.resolved_at, `${where}: closed before it was resolved`);
     }
 
@@ -124,8 +154,14 @@ async function runWalk(seed, stepCount) {
       check(assignments.length === 0, `${where}: no assignee but ${assignments.length} assignment rows exist`);
     } else {
       check(open.length === 1, `${where}: expected exactly one open assignment, found ${open.length}`);
-      check(open[0].assigned_to === incident.assignee_id, `${where}: open assignment is for a different person than assignee_id`);
-      check(incident.assigned_at === assignments[assignments.length - 1].assigned_at, `${where}: assigned_at does not match the latest assignment`);
+      check(
+        open[0].assigned_to === incident.assignee_id,
+        `${where}: open assignment is for a different person than assignee_id`
+      );
+      check(
+        incident.assigned_at === assignments[assignments.length - 1].assigned_at,
+        `${where}: assigned_at does not match the latest assignment`
+      );
     }
 
     // These never change.
@@ -168,8 +204,12 @@ async function runWalk(seed, stepCount) {
       );
       exercised.assign.add(`${from}:${expectOk ? "ok" : "rejected"}`);
 
-      check(result.ok === expectOk, `step ${step}: assigning a "${from}" incident ${result.ok ? "succeeded" : `was rejected (${result.statusCode})`}, expected ${expectOk ? "success" : "rejection"}`);
-      if (!result.ok) check(result.statusCode === 409, `step ${step}: rejected with ${result.statusCode}, expected 409`);
+      check(
+        result.ok === expectOk,
+        `step ${step}: assigning a "${from}" incident ${result.ok ? "succeeded" : `was rejected (${result.statusCode})`}, expected ${expectOk ? "success" : "rejection"}`
+      );
+      if (!result.ok)
+        check(result.statusCode === 409, `step ${step}: rejected with ${result.statusCode}, expected 409`);
       if (result.ok && from === "new") expectedHistoryLength += 1;
     } else {
       const expectOk = statusEndpointAllows(from, action.to);
@@ -180,8 +220,12 @@ async function runWalk(seed, stepCount) {
       );
       exercised.status.add(`${from}->${action.to}:${expectOk ? "ok" : "rejected"}`);
 
-      check(result.ok === expectOk, `step ${step}: ${from} -> ${action.to} ${result.ok ? "succeeded" : `was rejected (${result.statusCode})`}, expected ${expectOk ? "success" : "rejection"}`);
-      if (!result.ok) check(result.statusCode === 409, `step ${step}: rejected with ${result.statusCode}, expected 409`);
+      check(
+        result.ok === expectOk,
+        `step ${step}: ${from} -> ${action.to} ${result.ok ? "succeeded" : `was rejected (${result.statusCode})`}, expected ${expectOk ? "success" : "rejection"}`
+      );
+      if (!result.ok)
+        check(result.statusCode === 409, `step ${step}: rejected with ${result.statusCode}, expected 409`);
       if (result.ok) expectedHistoryLength += 1;
     }
 

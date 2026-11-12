@@ -86,9 +86,7 @@ async function runPg(target, text, params = []) {
  * promise so callers can `await` regardless of dbClient.
  */
 async function query(text, params = []) {
-  return usePostgres()
-    ? runPg(initPostgres(), text, params)
-    : runSqlite(initSqlite(), text, params);
+  return usePostgres() ? runPg(initPostgres(), text, params) : runSqlite(initSqlite(), text, params);
 }
 
 /**
@@ -110,8 +108,7 @@ async function runTransaction(fn) {
   const isPg = usePostgres();
   const { client, release } = await getClient();
 
-  const txQuery = async (text, params = []) =>
-    isPg ? runPg(client, text, params) : runSqlite(client, text, params);
+  const txQuery = async (text, params = []) => (isPg ? runPg(client, text, params) : runSqlite(client, text, params));
 
   const exec = (sql) => (isPg ? client.query(sql) : client.exec(sql));
 

@@ -1,20 +1,6 @@
 const crypto = require("crypto");
-const {
-  HOUR,
-  MINUTE,
-  installClock,
-  bootstrap,
-  makeApi,
-  rawIncident,
-  snapshot,
-  db,
-} = require("./helpers/lifecycleHarness");
-const {
-  SPEC_STATUSES,
-  SPEC_TRANSITIONS,
-  statusEndpointAllows,
-  assignAllowed,
-} = require("./helpers/lifecycleSpec");
+const { HOUR, installClock, bootstrap, makeApi, rawIncident, snapshot, db } = require("./helpers/lifecycleHarness");
+const { SPEC_STATUSES, SPEC_TRANSITIONS, statusEndpointAllows, assignAllowed } = require("./helpers/lifecycleSpec");
 const { runEscalationCycle } = require("../src/services/escalationService");
 
 let ctx, ids, api, time;
@@ -156,16 +142,64 @@ describe("status endpoint: all 49 from/to combinations", () => {
 describe("lifecycle paths", () => {
   const A = "assign";
   const paths = [
-    { name: "straight through", steps: [A, "in_progress", "resolved", "closed"], final: "closed", resolved: true, closed: true },
-    { name: "with a hold", steps: [A, "in_progress", "on_hold", "in_progress", "resolved"], final: "resolved", resolved: true, closed: false },
-    { name: "with two holds", steps: [A, "in_progress", "on_hold", "in_progress", "on_hold", "in_progress", "resolved", "closed"], final: "closed", resolved: true, closed: true },
-    { name: "reopened from resolved", steps: [A, "in_progress", "resolved", "in_progress", "resolved", "closed"], final: "closed", resolved: true, closed: true },
-    { name: "reopened from closed", steps: [A, "in_progress", "resolved", "closed", "in_progress", "resolved", "closed"], final: "closed", resolved: true, closed: true },
-    { name: "reopened and left open", steps: [A, "in_progress", "resolved", "closed", "in_progress"], final: "in_progress", resolved: false, closed: false },
-    { name: "put on hold and left there", steps: [A, "in_progress", "on_hold"], final: "on_hold", resolved: false, closed: false },
+    {
+      name: "straight through",
+      steps: [A, "in_progress", "resolved", "closed"],
+      final: "closed",
+      resolved: true,
+      closed: true,
+    },
+    {
+      name: "with a hold",
+      steps: [A, "in_progress", "on_hold", "in_progress", "resolved"],
+      final: "resolved",
+      resolved: true,
+      closed: false,
+    },
+    {
+      name: "with two holds",
+      steps: [A, "in_progress", "on_hold", "in_progress", "on_hold", "in_progress", "resolved", "closed"],
+      final: "closed",
+      resolved: true,
+      closed: true,
+    },
+    {
+      name: "reopened from resolved",
+      steps: [A, "in_progress", "resolved", "in_progress", "resolved", "closed"],
+      final: "closed",
+      resolved: true,
+      closed: true,
+    },
+    {
+      name: "reopened from closed",
+      steps: [A, "in_progress", "resolved", "closed", "in_progress", "resolved", "closed"],
+      final: "closed",
+      resolved: true,
+      closed: true,
+    },
+    {
+      name: "reopened and left open",
+      steps: [A, "in_progress", "resolved", "closed", "in_progress"],
+      final: "in_progress",
+      resolved: false,
+      closed: false,
+    },
+    {
+      name: "put on hold and left there",
+      steps: [A, "in_progress", "on_hold"],
+      final: "on_hold",
+      resolved: false,
+      closed: false,
+    },
     { name: "cancelled straight away", steps: ["cancelled"], final: "cancelled", resolved: false, closed: false },
     { name: "cancelled once assigned", steps: [A, "cancelled"], final: "cancelled", resolved: false, closed: false },
-    { name: "cancelled while in progress", steps: [A, "in_progress", "cancelled"], final: "cancelled", resolved: false, closed: false },
+    {
+      name: "cancelled while in progress",
+      steps: [A, "in_progress", "cancelled"],
+      final: "cancelled",
+      resolved: false,
+      closed: false,
+    },
   ];
 
   test.each(paths)("$name", async ({ steps, final, resolved, closed }) => {
@@ -767,7 +801,9 @@ describe("escalation and the lifecycle", () => {
 // ---------------------------------------------------------------------------
 
 describe("open design questions", () => {
-  test.todo("reopening a closed incident should only be allowed within a set window (Week 1 design: 'within N days of closing')");
+  test.todo(
+    "reopening a closed incident should only be allowed within a set window (Week 1 design: 'within N days of closing')"
+  );
   test.todo("decide whether a resolved incident may be reassigned (currently allowed)");
   test.todo("decide whether the SLA clock should pause between resolution and a reopen");
 });

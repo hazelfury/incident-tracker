@@ -3,11 +3,7 @@ const db = require("../config/database");
 const env = require("../config/env");
 const slaService = require("./slaService");
 const clock = require("../utils/clock");
-const {
-  ESCALATABLE_STATUSES,
-  findNextHigherPriority,
-  decideEscalation,
-} = require("../domain/escalationPolicy");
+const { ESCALATABLE_STATUSES, findNextHigherPriority, decideEscalation } = require("../domain/escalationPolicy");
 
 /**
  * One pass over all open incidents, raising any that are due by one priority
@@ -77,9 +73,7 @@ async function runEscalationCycle({ now = clock.now(), dryRun = false } = {}) {
       const applied = await db.withTransaction(async (query) => {
         // Re-read inside the transaction: if the incident was resolved or its
         // priority changed since we looked, leave it alone.
-        const fresh = (
-          await query("SELECT priority_id, status FROM incidents WHERE id = ?", [incident.id])
-        ).rows[0];
+        const fresh = (await query("SELECT priority_id, status FROM incidents WHERE id = ?", [incident.id])).rows[0];
         if (!fresh || fresh.priority_id !== incident.priority_id || !ESCALATABLE_STATUSES.includes(fresh.status)) {
           return false;
         }

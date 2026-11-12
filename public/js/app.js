@@ -152,7 +152,11 @@
           "span",
           { class: "legend-item" },
           el("span", { class: `badge prio-badge ${U.priorityClass(p.level)}` }, p.name),
-          el("span", { class: "legend-note" }, `resolve within ${U.formatDuration(p.sla_resolution_mins * MS_PER_MINUTE)}`)
+          el(
+            "span",
+            { class: "legend-note" },
+            `resolve within ${U.formatDuration(p.sla_resolution_mins * MS_PER_MINUTE)}`
+          )
         )
       );
     });
@@ -236,7 +240,9 @@
     }
 
     if (state.error) {
-      message.append(el("div", { class: "banner", role: "alert" }, `Couldn't refresh: ${state.error}. Showing the last data loaded.`));
+      message.append(
+        el("div", { class: "banner", role: "alert" }, `Couldn't refresh: ${state.error}. Showing the last data loaded.`)
+      );
     }
 
     const filtered = U.sortIncidents(
@@ -266,7 +272,9 @@
             "div",
             { class: "message" },
             el("strong", null, "No incidents match these filters"),
-            hasActiveFilters() ? el("button", { type: "button", class: "btn", onclick: clearFilters }, "Clear filters") : null
+            hasActiveFilters()
+              ? el("button", { type: "button", class: "btn", onclick: clearFilters }, "Clear filters")
+              : null
           )
         );
       }
@@ -314,7 +322,11 @@
         ),
         el("div", { class: "muted small" }, i.category_name || "Uncategorized")
       ),
-      el("td", { "data-label": "Status" }, el("span", { class: `badge status-badge status-${i.status}` }, U.statusLabel(i.status))),
+      el(
+        "td",
+        { "data-label": "Status" },
+        el("span", { class: `badge status-badge status-${i.status}` }, U.statusLabel(i.status))
+      ),
       el("td", { "data-label": "Assignee" }, i.assignee_name || el("span", { class: "muted" }, "Unassigned")),
       el("td", { "data-label": "SLA" }, el("span", { class: `due due-${due.tone}` }, due.text)),
       el("td", { "data-label": "Created" }, U.formatDateTime(i.created_at))
@@ -360,7 +372,11 @@
   // returns the pieces of text for one item.
   function renderTimeline(items, emptyText, describe) {
     if (!items || !items.length) return el("p", { class: "muted small" }, emptyText);
-    return el("ol", { class: "timeline" }, items.map((item) => el("li", null, ...describe(item))));
+    return el(
+      "ol",
+      { class: "timeline" },
+      items.map((item) => el("li", null, ...describe(item)))
+    );
   }
 
   function renderDetails(i) {
@@ -407,7 +423,9 @@
       ]),
       el("h3", null, "Status history"),
       renderTimeline(i.statusHistory, "No status changes recorded.", (h) => [
-        h.from_status ? `${U.statusLabel(h.from_status)} → ${U.statusLabel(h.to_status)}` : `Created as ${U.statusLabel(h.to_status)}`,
+        h.from_status
+          ? `${U.statusLabel(h.from_status)} → ${U.statusLabel(h.to_status)}`
+          : `Created as ${U.statusLabel(h.to_status)}`,
         h.changed_by_name ? ` · ${h.changed_by_name}` : "",
         ` · ${U.formatDateTime(h.changed_at)}`,
         h.note ? ` · “${h.note}”` : "",

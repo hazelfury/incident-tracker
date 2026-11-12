@@ -75,9 +75,7 @@ async function loadSlaContext(incidentIds) {
 
   return {
     historyByIncident: groupHoldHistory(history.rows),
-    firstResponseByIncident: new Map(
-      firstResponse.rows.map((row) => [row.incident_id, row.first_response_at])
-    ),
+    firstResponseByIncident: new Map(firstResponse.rows.map((row) => [row.incident_id, row.first_response_at])),
     escalationsByIncident: groupBy(escalations.rows, "incident_id"),
   };
 }

@@ -63,10 +63,14 @@ async function bootstrap() {
     [ids.agent2, "Omar Agent", "omar@example.com", "agent"],
   ];
   for (const [id, name, email, role] of users) {
-    await db.query(
-      "INSERT INTO users (id, name, email, password_hash, role, team_id) VALUES (?, ?, ?, ?, ?, ?)",
-      [id, name, email, "hash", role, ids.team]
-    );
+    await db.query("INSERT INTO users (id, name, email, password_hash, role, team_id) VALUES (?, ?, ?, ?, ?, ?)", [
+      id,
+      name,
+      email,
+      "hash",
+      role,
+      ids.team,
+    ]);
   }
   await db.query("INSERT INTO categories (id, name) VALUES (?, ?)", [ids.category, "Network"]);
   for (const [level, name, response, resolution] of PRIORITY_DEFS) {
@@ -139,7 +143,9 @@ function makeApi({ app, ids }, time) {
       for (const step of PATH_TO_STATUS[status]) {
         const res = await api.step(created.body.id, step);
         if (res.status !== 200) {
-          throw new Error(`could not drive to "${status}" at step "${step}": ${res.status} ${JSON.stringify(res.body)}`);
+          throw new Error(
+            `could not drive to "${status}" at step "${step}": ${res.status} ${JSON.stringify(res.body)}`
+          );
         }
       }
       return created.body.id;

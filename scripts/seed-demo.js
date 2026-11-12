@@ -10,28 +10,135 @@ const MS_PER_HOUR = 60 * MINUTE_MS;
 // so the dashboard shows overdue, due-soon and on-time cases.
 // priority: 1 = Critical ... 4 = Low (matches the levels created by db:seed).
 const DEMO_INCIDENTS = [
-  { title: "Production database unreachable", priority: 1, category: "Software", status: "in_progress", agent: 0, ageHours: 6 },
+  {
+    title: "Production database unreachable",
+    priority: 1,
+    category: "Software",
+    status: "in_progress",
+    agent: 0,
+    ageHours: 6,
+  },
   { title: "Payment gateway timeouts", priority: 1, category: "Network", status: "assigned", agent: 1, ageHours: 3.2 },
-  { title: "SSO login loop for contractors", priority: 1, category: "Access/Account", status: "resolved", agent: 2, ageHours: 30 , lateResponse: true },
-  { title: "Company VPN dropping connections", priority: 2, category: "Network", status: "new", agent: null, ageHours: 1 },
-  { title: "CEO laptop will not boot", priority: 2, category: "Hardware", status: "in_progress", agent: 1, ageHours: 5 },
-  { title: "Email delivery delays to external domains", priority: 2, category: "Software", status: "on_hold", agent: 0, ageHours: 14 , lateResponse: true },
+  {
+    title: "SSO login loop for contractors",
+    priority: 1,
+    category: "Access/Account",
+    status: "resolved",
+    agent: 2,
+    ageHours: 30,
+    lateResponse: true,
+  },
+  {
+    title: "Company VPN dropping connections",
+    priority: 2,
+    category: "Network",
+    status: "new",
+    agent: null,
+    ageHours: 1,
+  },
+  {
+    title: "CEO laptop will not boot",
+    priority: 2,
+    category: "Hardware",
+    status: "in_progress",
+    agent: 1,
+    ageHours: 5,
+  },
+  {
+    title: "Email delivery delays to external domains",
+    priority: 2,
+    category: "Software",
+    status: "on_hold",
+    agent: 0,
+    ageHours: 14,
+    lateResponse: true,
+  },
   { title: "Slow VPN for remote staff", priority: 2, category: "Network", status: "new", agent: null, ageHours: 26 },
   { title: "Printer on 3rd floor offline", priority: 3, category: "Hardware", status: "new", agent: null, ageHours: 3 },
-  { title: "Shared drive permission request", priority: 3, category: "Access/Account", status: "in_progress", agent: 2, ageHours: 9 },
-  { title: "Wi-Fi dead zone in meeting room B", priority: 3, category: "Network", status: "resolved", agent: 1, ageHours: 30 },
-  { title: "Duplicate ticket: VPN issue", priority: 3, category: "Network", status: "cancelled", agent: null, ageHours: 8 },
-  { title: "Install Figma for design team", priority: 4, category: "Software", status: "assigned", agent: 0, ageHours: 20 },
-  { title: "Password reset for new hire", priority: 4, category: "Access/Account", status: "closed", agent: 2, ageHours: 50 },
-  { title: "Monitor flickering at desk 14", priority: 4, category: "Hardware", status: "resolved", agent: 1, ageHours: 12 },
+  {
+    title: "Shared drive permission request",
+    priority: 3,
+    category: "Access/Account",
+    status: "in_progress",
+    agent: 2,
+    ageHours: 9,
+  },
+  {
+    title: "Wi-Fi dead zone in meeting room B",
+    priority: 3,
+    category: "Network",
+    status: "resolved",
+    agent: 1,
+    ageHours: 30,
+  },
+  {
+    title: "Duplicate ticket: VPN issue",
+    priority: 3,
+    category: "Network",
+    status: "cancelled",
+    agent: null,
+    ageHours: 8,
+  },
+  {
+    title: "Install Figma for design team",
+    priority: 4,
+    category: "Software",
+    status: "assigned",
+    agent: 0,
+    ageHours: 20,
+  },
+  {
+    title: "Password reset for new hire",
+    priority: 4,
+    category: "Access/Account",
+    status: "closed",
+    agent: 2,
+    ageHours: 50,
+  },
+  {
+    title: "Monitor flickering at desk 14",
+    priority: 4,
+    category: "Hardware",
+    status: "resolved",
+    agent: 1,
+    ageHours: 12,
+  },
   { title: "Keyboard replacement", priority: 4, category: "Hardware", status: "new", agent: null, ageHours: 4 },
 
   // Week 6: incidents old enough to be due for automatic escalation...
-  { title: "Meeting room display not working", priority: 3, category: "Hardware", status: "new", agent: null, ageHours: 20 },
-  { title: "Request: second monitor for new hire", priority: 4, category: "Hardware", status: "assigned", agent: 1, ageHours: 60 },
-  { title: "Intermittent file server access", priority: 2, category: "Network", status: "in_progress", agent: 2, ageHours: 7 },
+  {
+    title: "Meeting room display not working",
+    priority: 3,
+    category: "Hardware",
+    status: "new",
+    agent: null,
+    ageHours: 20,
+  },
+  {
+    title: "Request: second monitor for new hire",
+    priority: 4,
+    category: "Hardware",
+    status: "assigned",
+    agent: 1,
+    ageHours: 60,
+  },
+  {
+    title: "Intermittent file server access",
+    priority: 2,
+    category: "Network",
+    status: "in_progress",
+    agent: 2,
+    ageHours: 7,
+  },
   // ...and one that is on hold within its target, so its SLA clock is paused.
-  { title: "Waiting on vendor for replacement switch", priority: 3, category: "Network", status: "on_hold", agent: 0, ageHours: 14 },
+  {
+    title: "Waiting on vendor for replacement switch",
+    priority: 3,
+    category: "Network",
+    status: "on_hold",
+    agent: 0,
+    ageHours: 14,
+  },
 ];
 
 // Status changes to apply after assignment, in order.
@@ -51,10 +158,13 @@ async function getOrCreateUser(name, email, role) {
   const existing = await db.query("SELECT id FROM users WHERE email = ?", [email]);
   if (existing.rows.length) return existing.rows[0].id;
   const id = crypto.randomUUID();
-  await db.query(
-    "INSERT INTO users (id, name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)",
-    [id, name, email, "dev-only-hash", role]
-  );
+  await db.query("INSERT INTO users (id, name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)", [
+    id,
+    name,
+    email,
+    "dev-only-hash",
+    role,
+  ]);
   return id;
 }
 
@@ -72,10 +182,9 @@ async function retime(incidentId, demo, priority) {
   const iso = (ms) => new Date(ms).toISOString();
 
   const history = (
-    await db.query(
-      "SELECT id, to_status FROM incident_status_history WHERE incident_id = ? ORDER BY changed_at",
-      [incidentId]
-    )
+    await db.query("SELECT id, to_status FROM incident_status_history WHERE incident_id = ? ORDER BY changed_at", [
+      incidentId,
+    ])
   ).rows;
 
   const offsets = []; // ms after creation for each history row
@@ -101,7 +210,10 @@ async function retime(incidentId, demo, priority) {
   }
 
   if (at.assigned !== undefined) {
-    await db.query("UPDATE incident_assignments SET assigned_at = ? WHERE incident_id = ?", [iso(at.assigned), incidentId]);
+    await db.query("UPDATE incident_assignments SET assigned_at = ? WHERE incident_id = ?", [
+      iso(at.assigned),
+      incidentId,
+    ]);
   }
 
   await db.query(
@@ -149,7 +261,9 @@ async function main() {
     const priority = priorityByLevel[demo.priority];
     const categoryId = categoryByName[demo.category];
     if (!priority || !categoryId) {
-      throw new Error(`Missing priority level ${demo.priority} or category "${demo.category}". Run npm run db:seed first.`);
+      throw new Error(
+        `Missing priority level ${demo.priority} or category "${demo.category}". Run npm run db:seed first.`
+      );
     }
 
     const reporterId = reporters[n % reporters.length];
@@ -165,7 +279,12 @@ async function main() {
 
     if (demo.status === "cancelled") {
       await sleep(3);
-      await incidentService.updateStatus({ incidentId: incident.id, toStatus: "cancelled", changedBy: reporterId, note: "Duplicate of an existing ticket" });
+      await incidentService.updateStatus({
+        incidentId: incident.id,
+        toStatus: "cancelled",
+        changedBy: reporterId,
+        note: "Duplicate of an existing ticket",
+      });
     } else if (agentId) {
       await sleep(3);
       await incidentService.assignIncident({ incidentId: incident.id, assignedTo: agentId, assignedBy: agentId });

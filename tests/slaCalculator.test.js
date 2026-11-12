@@ -36,7 +36,13 @@ describe("toMs", () => {
 
 describe("holdPeriods", () => {
   it("pairs each on_hold row with the next transition", () => {
-    const history = [hist("new", 0), hist("on_hold", 2), hist("in_progress", 5), hist("on_hold", 8), hist("in_progress", 9)];
+    const history = [
+      hist("new", 0),
+      hist("on_hold", 2),
+      hist("in_progress", 5),
+      hist("on_hold", 8),
+      hist("in_progress", 9),
+    ];
     expect(holdPeriods(history, at(20).getTime(), "in_progress")).toEqual([
       [T0 + 2 * HOUR, T0 + 5 * HOUR],
       [T0 + 8 * HOUR, T0 + 9 * HOUR],
@@ -60,7 +66,9 @@ describe("holdPeriods", () => {
   });
 
   it("throws when now is missing", () => {
-    expect(() => evaluateSla({ incident: { status: "new", created_at: "2026-03-02T09:00:00Z", due_at: "2026-03-02T17:00:00Z" } })).toThrow(TypeError);
+    expect(() =>
+      evaluateSla({ incident: { status: "new", created_at: "2026-03-02T09:00:00Z", due_at: "2026-03-02T17:00:00Z" } })
+    ).toThrow(TypeError);
   });
 });
 

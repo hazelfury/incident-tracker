@@ -5,10 +5,7 @@ const crypto = require("crypto");
 const createApp = require("../src/app");
 const db = require("../src/config/database");
 
-const schemaSql = fs.readFileSync(
-  path.join(__dirname, "..", "database", "schema.sql"),
-  "utf8"
-);
+const schemaSql = fs.readFileSync(path.join(__dirname, "..", "database", "schema.sql"), "utf8");
 
 const app = createApp();
 
@@ -26,18 +23,30 @@ beforeAll(async () => {
   priority = crypto.randomUUID();
 
   await db.query("INSERT INTO teams (id, name) VALUES (?, ?)", [team, "Support"]);
-  await db.query(
-    "INSERT INTO users (id, name, email, password_hash, role, team_id) VALUES (?, ?, ?, ?, ?, ?)",
-    [reporter, "Riley Requester", "riley@example.com", "hash", "requester", team]
-  );
-  await db.query(
-    "INSERT INTO users (id, name, email, password_hash, role, team_id) VALUES (?, ?, ?, ?, ?, ?)",
-    [agent, "Amara Agent", "amara@example.com", "hash", "agent", team]
-  );
-  await db.query(
-    "INSERT INTO users (id, name, email, password_hash, role, team_id) VALUES (?, ?, ?, ?, ?, ?)",
-    [otherAgent, "Omar Agent", "omar@example.com", "hash", "agent", team]
-  );
+  await db.query("INSERT INTO users (id, name, email, password_hash, role, team_id) VALUES (?, ?, ?, ?, ?, ?)", [
+    reporter,
+    "Riley Requester",
+    "riley@example.com",
+    "hash",
+    "requester",
+    team,
+  ]);
+  await db.query("INSERT INTO users (id, name, email, password_hash, role, team_id) VALUES (?, ?, ?, ?, ?, ?)", [
+    agent,
+    "Amara Agent",
+    "amara@example.com",
+    "hash",
+    "agent",
+    team,
+  ]);
+  await db.query("INSERT INTO users (id, name, email, password_hash, role, team_id) VALUES (?, ?, ?, ?, ?, ?)", [
+    otherAgent,
+    "Omar Agent",
+    "omar@example.com",
+    "hash",
+    "agent",
+    team,
+  ]);
   await db.query("INSERT INTO categories (id, name) VALUES (?, ?)", [category, "Software"]);
   await db.query(
     "INSERT INTO priorities (id, name, level, sla_response_mins, sla_resolution_mins) VALUES (?, ?, ?, ?, ?)",
@@ -109,9 +118,7 @@ describe("PATCH /api/incidents/:id/assignment", () => {
   });
 
   it("reassignment closes the old assignment row and opens a new one", async () => {
-    await request(app)
-      .patch(`/api/incidents/${incidentId}/assignment`)
-      .send({ assignedTo: agent, assignedBy: agent });
+    await request(app).patch(`/api/incidents/${incidentId}/assignment`).send({ assignedTo: agent, assignedBy: agent });
 
     await request(app)
       .patch(`/api/incidents/${incidentId}/assignment`)
@@ -143,15 +150,11 @@ describe("PATCH /api/incidents/:id/status", () => {
       priorityId: priority,
     });
     incidentId = res.body.id;
-    await request(app)
-      .patch(`/api/incidents/${incidentId}/assignment`)
-      .send({ assignedTo: agent, assignedBy: agent });
+    await request(app).patch(`/api/incidents/${incidentId}/assignment`).send({ assignedTo: agent, assignedBy: agent });
   });
 
   it("walks assigned -> in_progress -> resolved, stamping resolved_at", async () => {
-    await request(app)
-      .patch(`/api/incidents/${incidentId}/status`)
-      .send({ status: "in_progress", changedBy: agent });
+    await request(app).patch(`/api/incidents/${incidentId}/status`).send({ status: "in_progress", changedBy: agent });
 
     const res = await request(app)
       .patch(`/api/incidents/${incidentId}/status`)

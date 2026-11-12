@@ -58,10 +58,7 @@ async function createIncident({ title, description, reporterId, categoryId, prio
     throw new HttpError(400, "title, reporterId, categoryId, and priorityId are required");
   }
 
-  const priorityResult = await db.query(
-    "SELECT sla_resolution_mins FROM priorities WHERE id = ?",
-    [priorityId]
-  );
+  const priorityResult = await db.query("SELECT sla_resolution_mins FROM priorities WHERE id = ?", [priorityId]);
   if (!priorityResult.rows.length) {
     throw new HttpError(400, `Unknown priorityId: ${priorityId}`);
   }
@@ -122,10 +119,7 @@ async function assignIncident({ incidentId, assignedTo, assignedBy, reason }) {
       throw new HttpError(404, `Incident not found: ${incidentId}`);
     }
     if (!lifecycle.canAssign(incident.status)) {
-      throw new HttpError(
-        409,
-        `Cannot assign an incident with status "${incident.status}"`
-      );
+      throw new HttpError(409, `Cannot assign an incident with status "${incident.status}"`);
     }
 
     const assignedAt = nowIso();
@@ -143,10 +137,12 @@ async function assignIncident({ incidentId, assignedTo, assignedBy, reason }) {
 
     const nextStatus = lifecycle.statusAfterAssignment(incident.status);
 
-    await query(
-      `UPDATE incidents SET assignee_id = ?, assigned_at = ?, status = ? WHERE id = ?`,
-      [assignedTo, assignedAt, nextStatus, incidentId]
-    );
+    await query(`UPDATE incidents SET assignee_id = ?, assigned_at = ?, status = ? WHERE id = ?`, [
+      assignedTo,
+      assignedAt,
+      nextStatus,
+      incidentId,
+    ]);
 
     if (nextStatus !== incident.status) {
       await recordStatusChange(query, {
@@ -170,10 +166,7 @@ async function assignIncident({ incidentId, assignedTo, assignedBy, reason }) {
  */
 async function updateStatus({ incidentId, toStatus, changedBy, note }) {
   if (!lifecycle.isValidStatus(toStatus)) {
-    throw new HttpError(
-      400,
-      `Invalid status "${toStatus}". Must be one of: ${lifecycle.STATUSES.join(", ")}`
-    );
+    throw new HttpError(400, `Invalid status "${toStatus}". Must be one of: ${lifecycle.STATUSES.join(", ")}`);
   }
   if (!(await rowExists("users", changedBy))) {
     throw new HttpError(400, `Unknown changedBy: ${changedBy}`);
@@ -211,10 +204,12 @@ async function updateStatus({ incidentId, toStatus, changedBy, note }) {
       closed_at: incident.closed_at,
     });
 
-    await query(
-      `UPDATE incidents SET status = ?, resolved_at = ?, closed_at = ? WHERE id = ?`,
-      [toStatus, resolved_at, closed_at, incidentId]
-    );
+    await query(`UPDATE incidents SET status = ?, resolved_at = ?, closed_at = ? WHERE id = ?`, [
+      toStatus,
+      resolved_at,
+      closed_at,
+      incidentId,
+    ]);
     await recordStatusChange(query, {
       incidentId,
       from: incident.status,

@@ -77,7 +77,7 @@ describe("formatDuration", () => {
     expect(U.formatDuration(60 * 60000)).toBe("1h");
     expect(U.formatDuration((2 * 60 + 59) * 60000)).toBe("2h 59m");
     expect(U.formatDuration(24 * 60 * 60000)).toBe("1d");
-    expect(U.formatDuration((26 * 60) * 60000)).toBe("1d 2h");
+    expect(U.formatDuration(26 * 60 * 60000)).toBe("1d 2h");
   });
 
   it("ignores sign, so it works for overdue durations", () => {
@@ -119,7 +119,14 @@ describe("isOverdue and dueInfo", () => {
 describe("filterIncidents", () => {
   const list = [
     incident({ id: "a", title: "VPN down", status: "new", priority_id: "p1", assignee_name: null }),
-    incident({ id: "b", title: "Printer jam", status: "assigned", priority_id: "p2", assignee_name: "Amara Agent", category_name: "Hardware" }),
+    incident({
+      id: "b",
+      title: "Printer jam",
+      status: "assigned",
+      priority_id: "p2",
+      assignee_name: "Amara Agent",
+      category_name: "Hardware",
+    }),
     incident({ id: "c", title: "Email outage", status: "assigned", priority_id: "p1", assignee_name: "Omar Agent" }),
   ];
   const ids = (arr) => arr.map((i) => i.id);
@@ -157,13 +164,7 @@ describe("sortIncidents", () => {
       incident({ id: "p1-sooner", priority_level: 1, due_at: hoursFromNow(1) }),
       incident({ id: "p2", priority_level: 2, due_at: hoursFromNow(4) }),
     ];
-    expect(U.sortIncidents(list).map((i) => i.id)).toEqual([
-      "p1-sooner",
-      "p1-later",
-      "p2",
-      "p3",
-      "resolved-p1",
-    ]);
+    expect(U.sortIncidents(list).map((i) => i.id)).toEqual(["p1-sooner", "p1-later", "p2", "p3", "resolved-p1"]);
   });
 
   it("does not mutate the input array", () => {
@@ -222,7 +223,13 @@ function withSla(overrides = {}, resolution = {}, response = {}) {
         paused_ms: 0,
         ...resolution,
       },
-      response: { status: "met", breached: false, due_at: hoursFromNow(-1), responded_at: hoursFromNow(-1.5), ...response },
+      response: {
+        status: "met",
+        breached: false,
+        due_at: hoursFromNow(-1),
+        responded_at: hoursFromNow(-1.5),
+        ...response,
+      },
     },
     ...overrides,
   });
@@ -254,7 +261,9 @@ describe("dueInfo with a server SLA", () => {
 
   it("reports finished incidents as on time or late", () => {
     expect(U.dueInfo(withSla({ status: "resolved" }, { status: "met" }), NOW).text).toBe("Resolved on time");
-    expect(U.dueInfo(withSla({ status: "closed" }, { status: "breached", breached: true }), NOW).text).toBe("Resolved late");
+    expect(U.dueInfo(withSla({ status: "closed" }, { status: "breached", breached: true }), NOW).text).toBe(
+      "Resolved late"
+    );
   });
 
   it("shows a dash when the server says SLA does not apply", () => {
@@ -275,7 +284,10 @@ describe("isOverdue and summarize with a server SLA", () => {
 
   it("does not call a paused (on hold) incident overdue just because due_at has passed", () => {
     // The raw due_at is in the past, but the server pushed the effective due date out.
-    const i = withSla({ status: "on_hold", due_at: hoursFromNow(-3) }, { status: "paused", paused: true, due_at: hoursFromNow(2) });
+    const i = withSla(
+      { status: "on_hold", due_at: hoursFromNow(-3) },
+      { status: "paused", paused: true, due_at: hoursFromNow(2) }
+    );
     expect(U.isOverdue(i, NOW)).toBe(false);
   });
 
@@ -291,7 +303,10 @@ describe("isOverdue and summarize with a server SLA", () => {
   it("counts breaches from the server evaluation in the summary", () => {
     const list = [
       withSla({ id: "a" }, { status: "breached", breached: true }),
-      withSla({ id: "b", status: "on_hold", due_at: hoursFromNow(-3) }, { status: "paused", paused: true, due_at: hoursFromNow(2) }),
+      withSla(
+        { id: "b", status: "on_hold", due_at: hoursFromNow(-3) },
+        { status: "paused", paused: true, due_at: hoursFromNow(2) }
+      ),
       withSla({ id: "c" }),
     ];
     expect(U.summarize(list, NOW).overdue).toBe(1);
@@ -300,10 +315,19 @@ describe("isOverdue and summarize with a server SLA", () => {
 
 describe("responseInfo", () => {
   it("describes met, late, missed and pending responses", () => {
-    expect(U.responseInfo(withSla({}, {}, { status: "met" }), NOW)).toEqual({ text: "Responded on time", tone: "done" });
-    expect(U.responseInfo(withSla({}, {}, { status: "breached", breached: true, responded_at: hoursFromNow(-1) }), NOW).text).toBe("Responded late");
-    expect(U.responseInfo(withSla({}, {}, { status: "breached", breached: true, responded_at: null }), NOW).text).toBe("No response yet, target missed");
-    expect(U.responseInfo(withSla({}, {}, { status: "pending", responded_at: null, due_at: hoursFromNow(0.5) }), NOW).text).toBe("Respond within 30m");
+    expect(U.responseInfo(withSla({}, {}, { status: "met" }), NOW)).toEqual({
+      text: "Responded on time",
+      tone: "done",
+    });
+    expect(
+      U.responseInfo(withSla({}, {}, { status: "breached", breached: true, responded_at: hoursFromNow(-1) }), NOW).text
+    ).toBe("Responded late");
+    expect(U.responseInfo(withSla({}, {}, { status: "breached", breached: true, responded_at: null }), NOW).text).toBe(
+      "No response yet, target missed"
+    );
+    expect(
+      U.responseInfo(withSla({}, {}, { status: "pending", responded_at: null, due_at: hoursFromNow(0.5) }), NOW).text
+    ).toBe("Respond within 30m");
   });
 
   it("shows a dash when there is no SLA data or it does not apply", () => {

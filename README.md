@@ -114,35 +114,48 @@ npm run db:seed       # loads P1-P4 priorities and default categories (safe to r
 
 ### Endpoints
 
-| Method | Path | Purpose |
-|---|---|---|
-| POST | `/api/incidents` | Create an incident |
-| GET | `/api/incidents` | List incidents |
-| GET | `/api/incidents/:id` | Get one incident, with its assignment and status history |
-| PATCH | `/api/incidents/:id/assignment` | Assign or reassign |
-| PATCH | `/api/incidents/:id/status` | Change status (sets `resolved_at`/`closed_at`) |
+| Method | Path                            | Purpose                                                  |
+| ------ | ------------------------------- | -------------------------------------------------------- |
+| POST   | `/api/incidents`                | Create an incident                                       |
+| GET    | `/api/incidents`                | List incidents                                           |
+| GET    | `/api/incidents/:id`            | Get one incident, with its assignment and status history |
+| PATCH  | `/api/incidents/:id/assignment` | Assign or reassign                                       |
+| PATCH  | `/api/incidents/:id/status`     | Change status (sets `resolved_at`/`closed_at`)           |
 
 **Create** — `POST /api/incidents`
+
 ```json
-{ "title": "VPN down", "description": "optional", "reporterId": "<user id>", "categoryId": "<category id>", "priorityId": "<priority id>", "teamId": "optional" }
+{
+  "title": "VPN down",
+  "description": "optional",
+  "reporterId": "<user id>",
+  "categoryId": "<category id>",
+  "priorityId": "<priority id>",
+  "teamId": "optional"
+}
 ```
+
 Validates all referenced ids exist, inserts the incident in `new` status,
 computes `due_at` from the priority's `sla_resolution_mins`, and logs the
 initial row to `incident_status_history` — all in one transaction.
 
 **Assign** — `PATCH /api/incidents/:id/assignment`
+
 ```json
 { "assignedTo": "<user id>", "assignedBy": "<user id>", "reason": "optional" }
 ```
+
 Closes out any currently-open `incident_assignments` row (`unassigned_at`),
 opens a new one, and updates `incidents.assignee_id`. If the incident is
 still `new`, this also advances it to `assigned` and logs that transition.
 Rejects with 409 if the incident is already `closed`/`cancelled`.
 
 **Change status** — `PATCH /api/incidents/:id/status`
+
 ```json
 { "status": "in_progress", "changedBy": "<user id>", "note": "optional" }
 ```
+
 This is where resolution timestamps get set: `resolved_at` the moment
 status becomes `resolved`, `closed_at` the moment it becomes `closed`; both
 clear again if the incident is reopened back to `in_progress`. Every
@@ -151,6 +164,7 @@ transition is logged to `incident_status_history`. Invalid transitions
 states for that incident.
 
 Allowed transitions:
+
 ```
 new          -> assigned, cancelled
 assigned     -> in_progress, cancelled
@@ -168,8 +182,8 @@ is what records who it is assigned to. (Week 7 fixed a gap here; see below.)
 ### Why a transaction helper
 
 Several of these operations touch more than one table and need to stay
-atomic — assigning an incident writes `incident_assignments` *and*
-`incidents` *and* possibly `incident_status_history` together. `src/config/database.js`
+atomic — assigning an incident writes `incident_assignments` _and_
+`incidents` _and_ possibly `incident_status_history` together. `src/config/database.js`
 exports `withTransaction(fn)`, which runs `BEGIN`/`COMMIT` (or `ROLLBACK` on
 error) around a callback that receives a `query()` function bound to that
 one connection, using the same `?` placeholder convention as everywhere
@@ -242,11 +256,11 @@ date; finished incidents come last.
 
 ### API additions this week
 
-| Method | Path | Notes |
-|---|---|---|
-| GET | `/api/incidents` | Now includes `priority_name`, `priority_level`, `category_name`, `team_name`, `assignee_name`, `reporter_name`. Optional `?status=new` or `?status=new,assigned`; unknown statuses return 400. Capped at 500 rows until pagination exists. |
-| GET | `/api/incidents/:id` | Assignment and status history rows now include the person's name. |
-| GET | `/api/priorities` | Priority levels with SLA targets, ordered most urgent first. |
+| Method | Path                 | Notes                                                                                                                                                                                                                                      |
+| ------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| GET    | `/api/incidents`     | Now includes `priority_name`, `priority_level`, `category_name`, `team_name`, `assignee_name`, `reporter_name`. Optional `?status=new` or `?status=new,assigned`; unknown statuses return 400. Capped at 500 rows until pagination exists. |
+| GET    | `/api/incidents/:id` | Assignment and status history rows now include the person's name.                                                                                                                                                                          |
+| GET    | `/api/priorities`    | Priority levels with SLA targets, ordered most urgent first.                                                                                                                                                                               |
 
 The dashboard loads the full list and filters in the browser so the status
 counts stay visible; `?status=` is there for other clients.
@@ -290,14 +304,14 @@ Each incident has two SLAs, both defined per priority in the `priorities` table.
 **Resolution SLA** — resolve by `incidents.due_at` (set at creation from the
 priority's `sla_resolution_mins`).
 
-| Status | Meaning |
-|---|---|
-| `on_track` | Less than 80% of the target time used |
-| `at_risk` | 80% or more used, not yet breached |
-| `breached` | Target time exceeded. For a finished incident this means it was resolved late |
-| `paused` | Currently on hold, within target |
-| `met` | Resolved within target |
-| `not_applicable` | Cancelled |
+| Status           | Meaning                                                                       |
+| ---------------- | ----------------------------------------------------------------------------- |
+| `on_track`       | Less than 80% of the target time used                                         |
+| `at_risk`        | 80% or more used, not yet breached                                            |
+| `breached`       | Target time exceeded. For a finished incident this means it was resolved late |
+| `paused`         | Currently on hold, within target                                              |
+| `met`            | Resolved within target                                                        |
+| `not_applicable` | Cancelled                                                                     |
 
 - **On-hold time pauses the clock**, as designed in Week 1. Elapsed time is
   `(now or resolved time) - created - time spent on hold`, and the effective due
@@ -324,12 +338,12 @@ current priority's resolution target at that priority without being resolved.
 
 With the default SLAs that gives:
 
-| From | Target | Escalates after | To |
-|---|---|---|---|
-| P4 - Low | 3d | 2d 6h | P3 |
-| P3 - Medium | 1d | 18h | P2 |
-| P2 - High | 8h | 6h | P1 |
-| P1 - Critical | 4h | never | (already highest) |
+| From          | Target | Escalates after | To                |
+| ------------- | ------ | --------------- | ----------------- |
+| P4 - Low      | 3d     | 2d 6h           | P3                |
+| P3 - Medium   | 1d     | 18h             | P2                |
+| P2 - High     | 8h     | 6h              | P1                |
+| P1 - Critical | 4h     | never           | (already highest) |
 
 Each escalation writes a row to `incident_escalations` (who/what/when/why;
 `escalated_by` is empty for the automatic job). The job runs inside the server
@@ -372,12 +386,12 @@ over HTTP: `POST /api/escalations/run` (add `?dryRun=true` to preview).
 If you already loaded demo data in an earlier week, delete `data/dev.sqlite3`
 and run migrate, seed, demo again to get the updated sample timeline.
 
-| Variable | Default | Meaning |
-|---|---|---|
-| `SLA_AT_RISK_PERCENT` | 80 | Share of the target used before an incident is "at risk" |
-| `ESCALATION_THRESHOLD_PERCENT` | 75 | Share of the current priority's target before escalating |
-| `ESCALATION_ENABLED` | true | Run the automatic job inside the server |
-| `ESCALATION_INTERVAL_SECONDS` | 60 | How often the job runs |
+| Variable                       | Default | Meaning                                                  |
+| ------------------------------ | ------- | -------------------------------------------------------- |
+| `SLA_AT_RISK_PERCENT`          | 80      | Share of the target used before an incident is "at risk" |
+| `ESCALATION_THRESHOLD_PERCENT` | 75      | Share of the current priority's target before escalating |
+| `ESCALATION_ENABLED`           | true    | Run the automatic job inside the server                  |
+| `ESCALATION_INTERVAL_SECONDS`  | 60      | How often the job runs                                   |
 
 ### Dashboard changes
 
@@ -407,11 +421,11 @@ The incident lifecycle (`new → assigned → in_progress → on_hold → resolv
 plus `cancelled` and reopening) is the core rule set of the app, so it now has three
 layers of tests, each answering a different question.
 
-| File | Layer | Tests | What it proves |
-|---|---|---|---|
-| `lifecycle.domain.test.js` | Unit | 139 | The rules themselves, with no database: the transition table, the 49 from/to pairs, status meanings, how `resolved_at`/`closed_at` are set and cleared, and that the database constraint, dashboard, SLA and escalation code all agree about what each status means |
-| `lifecycle.transitions.test.js` | Integration | 122 | Everything through the real HTTP API and database: all 49 pairs, ten whole journeys, exact timestamps, history rows, input validation, assignment rules, rollback on failure, double submits, and how the lifecycle feeds the SLA and escalation |
-| `lifecycle.invariants.test.js` | Property-style | 202 | 200 seeded random journeys mixing legal and illegal moves. After every step it checks 8 invariants (history is a gap-free chain ending at the current status, timestamps match history, anything past `new` has an assignee, exactly one open assignment, and so on) |
+| File                            | Layer          | Tests | What it proves                                                                                                                                                                                                                                                       |
+| ------------------------------- | -------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lifecycle.domain.test.js`      | Unit           | 139   | The rules themselves, with no database: the transition table, the 49 from/to pairs, status meanings, how `resolved_at`/`closed_at` are set and cleared, and that the database constraint, dashboard, SLA and escalation code all agree about what each status means  |
+| `lifecycle.transitions.test.js` | Integration    | 122   | Everything through the real HTTP API and database: all 49 pairs, ten whole journeys, exact timestamps, history rows, input validation, assignment rules, rollback on failure, double submits, and how the lifecycle feeds the SLA and escalation                     |
+| `lifecycle.invariants.test.js`  | Property-style | 202   | 200 seeded random journeys mixing legal and illegal moves. After every step it checks 8 invariants (history is a gap-free chain ending at the current status, timestamps match history, anything past `new` has an assignee, exactly one open assignment, and so on) |
 
 ```bash
 npm test                  # everything (10 suites, 601 tests)
@@ -447,12 +461,12 @@ and so on), and the lifecycle tests were run against each. **All 20 were caught.
 
 ### Coverage
 
-| File | Statements | Branches |
-|---|---|---|
-| `domain/incidentLifecycle.js` | 100% | 100% |
-| `services/incidentService.js` | 100% | 98.5% |
-| `domain/escalationPolicy.js` | 100% | 96.8% |
-| `domain/slaCalculator.js` | 100% | 95.7% |
+| File                          | Statements | Branches |
+| ----------------------------- | ---------- | -------- |
+| `domain/incidentLifecycle.js` | 100%       | 100%     |
+| `services/incidentService.js` | 100%       | 98.5%    |
+| `domain/escalationPolicy.js`  | 100%       | 96.8%    |
+| `domain/slaCalculator.js`     | 100%       | 95.7%    |
 
 `npm run test:coverage` enforces floors on the domain folder and `incidentService.js`.
 The Postgres paths in `config/database.js` are not covered, because they need a real Postgres server.

@@ -18,9 +18,7 @@ const { MINUTE_MS, toMs, holdPeriods, overlapMs } = require("./slaCalculator");
 
 // Statuses an incident can be escalated from. on_hold is deliberately absent.
 const lifecycle = require("./incidentLifecycle");
-const ESCALATABLE_STATUSES = lifecycle.STATUSES.filter(
-  (s) => lifecycle.isActive(s) && s !== "on_hold"
-);
+const ESCALATABLE_STATUSES = lifecycle.STATUSES.filter((s) => lifecycle.isActive(s) && s !== "on_hold");
 
 /**
  * The next more-urgent priority: the one with the highest level number that is

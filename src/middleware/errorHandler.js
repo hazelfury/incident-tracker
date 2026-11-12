@@ -16,9 +16,7 @@ function errorHandler(err, req, res, next) {
   res.status(status).json({
     error: {
       message: isOperational ? err.message : "Internal server error",
-      ...(env.nodeEnv !== "production" && !isOperational
-        ? { stack: err.stack }
-        : {}),
+      ...(env.nodeEnv !== "production" && !isOperational ? { stack: err.stack } : {}),
     },
   });
 }

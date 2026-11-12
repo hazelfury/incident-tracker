@@ -8,9 +8,7 @@ const app = createApp();
 db.init();
 
 const server = app.listen(env.port, () => {
-  console.log(
-    `Incident tracker backend listening on port ${env.port} (env=${env.nodeEnv}, db=${env.dbClient})`
-  );
+  console.log(`Incident tracker backend listening on port ${env.port} (env=${env.nodeEnv}, db=${env.dbClient})`);
 });
 
 // Automatic priority escalation runs on a timer inside the server process.

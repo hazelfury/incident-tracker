@@ -5,10 +5,7 @@ const request = require("supertest");
 const createApp = require("../src/app");
 const db = require("../src/config/database");
 
-const schemaSql = fs.readFileSync(
-  path.join(__dirname, "..", "database", "schema.sql"),
-  "utf8"
-);
+const schemaSql = fs.readFileSync(path.join(__dirname, "..", "database", "schema.sql"), "utf8");
 
 const app = createApp();
 
@@ -35,14 +32,20 @@ beforeAll(async () => {
   critical = crypto.randomUUID();
   low = crypto.randomUUID();
 
-  await db.query(
-    "INSERT INTO users (id, name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)",
-    [reporter, "Riley Requester", "riley@example.com", "hash", "requester"]
-  );
-  await db.query(
-    "INSERT INTO users (id, name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)",
-    [agent, "Amara Agent", "amara@example.com", "hash", "agent"]
-  );
+  await db.query("INSERT INTO users (id, name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)", [
+    reporter,
+    "Riley Requester",
+    "riley@example.com",
+    "hash",
+    "requester",
+  ]);
+  await db.query("INSERT INTO users (id, name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)", [
+    agent,
+    "Amara Agent",
+    "amara@example.com",
+    "hash",
+    "agent",
+  ]);
   await db.query("INSERT INTO categories (id, name) VALUES (?, ?)", [category, "Network"]);
   // Inserted out of order on purpose, to prove the API sorts by level.
   await db.query(

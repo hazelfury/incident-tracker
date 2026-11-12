@@ -98,7 +98,7 @@ function evaluateResolution({ incident, history, now, atRiskPercent }) {
   }
 
   const finished = FINISHED_STATUSES.includes(status);
-  const endMs = finished ? toMs(incident.resolved_at) ?? now : now;
+  const endMs = finished ? (toMs(incident.resolved_at) ?? now) : now;
 
   const pausedMs = overlapMs(holdPeriods(history, now, status), createdMs, endMs);
   const windowMs = dueMs - createdMs;
@@ -108,7 +108,8 @@ function evaluateResolution({ incident, history, now, atRiskPercent }) {
   const paused = status === "on_hold";
 
   let state;
-  if (elapsedMs > windowMs) state = "breached"; // for finished incidents this means "resolved late"
+  if (elapsedMs > windowMs)
+    state = "breached"; // for finished incidents this means "resolved late"
   else if (finished) state = "met";
   else if (paused) state = "paused";
   else if (percent >= atRiskPercent) state = "at_risk";
@@ -128,7 +129,12 @@ function evaluateResolution({ incident, history, now, atRiskPercent }) {
 
 function evaluateResponse({ incident, responseTargetMins, firstResponseAt, now }) {
   const createdMs = toMs(incident.created_at);
-  if (incident.status === "cancelled" || responseTargetMins === null || responseTargetMins === undefined || createdMs === null) {
+  if (
+    incident.status === "cancelled" ||
+    responseTargetMins === null ||
+    responseTargetMins === undefined ||
+    createdMs === null
+  ) {
     return { status: "not_applicable", breached: false, due_at: null, responded_at: null };
   }
 

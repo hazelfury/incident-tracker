@@ -15,15 +15,7 @@
   // The browser can't import the backend, so these two lists mirror
   // src/domain/incidentLifecycle.js. tests/dashboardUtils.sync.test.js fails
   // if they drift apart.
-  const STATUS_ORDER = [
-    "new",
-    "assigned",
-    "in_progress",
-    "on_hold",
-    "resolved",
-    "closed",
-    "cancelled",
-  ];
+  const STATUS_ORDER = ["new", "assigned", "in_progress", "on_hold", "resolved", "closed", "cancelled"];
 
   // Statuses where no more work is expected, so SLA timers stop mattering.
   const INACTIVE_STATUSES = ["resolved", "closed", "cancelled"];
@@ -194,13 +186,7 @@
       if (status !== "all" && i.status !== status) return false;
       if (priorityId && i.priority_id !== priorityId) return false;
       if (q) {
-        const haystack = [
-          i.title,
-          i.assignee_name,
-          i.category_name,
-          i.reporter_name,
-          i.priority_name,
-        ]
+        const haystack = [i.title, i.assignee_name, i.category_name, i.reporter_name, i.priority_name]
           .filter(Boolean)
           .join(" ")
           .toLowerCase();

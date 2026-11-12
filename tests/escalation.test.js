@@ -6,11 +6,7 @@ const createApp = require("../src/app");
 const db = require("../src/config/database");
 const { runEscalationCycle } = require("../src/services/escalationService");
 const { startEscalationJob } = require("../src/jobs/escalationJob");
-const {
-  findNextHigherPriority,
-  formatMinutes,
-  decideEscalation,
-} = require("../src/domain/escalationPolicy");
+const { findNextHigherPriority, formatMinutes, decideEscalation } = require("../src/domain/escalationPolicy");
 
 const HOUR = 3600000;
 const MIN = 60000;
@@ -40,7 +36,11 @@ describe("findNextHigherPriority", () => {
   });
 
   it("copes with gaps and unsorted input", () => {
-    const sparse = [{ level: 5, id: "a" }, { level: 1, id: "b" }, { level: 3, id: "c" }];
+    const sparse = [
+      { level: 5, id: "a" },
+      { level: 1, id: "b" },
+      { level: 3, id: "c" },
+    ];
     expect(findNextHigherPriority(sparse, { level: 5 }).id).toBe("c");
     expect(findNextHigherPriority(sparse, { level: 3 }).id).toBe("b");
   });
@@ -213,7 +213,8 @@ async function insertIncident({ title, level, status = "new", ageHours, holds = 
 }
 
 const priorityLevelOf = async (id) =>
-  (await db.query("SELECT p.level FROM incidents i JOIN priorities p ON p.id = i.priority_id WHERE i.id = ?", [id])).rows[0].level;
+  (await db.query("SELECT p.level FROM incidents i JOIN priorities p ON p.id = i.priority_id WHERE i.id = ?", [id]))
+    .rows[0].level;
 
 const escalationRows = async (id) =>
   (await db.query("SELECT * FROM incident_escalations WHERE incident_id = ? ORDER BY escalated_at", [id])).rows;
@@ -225,8 +226,20 @@ beforeAll(async () => {
   reporter = crypto.randomUUID();
   agent = crypto.randomUUID();
   category = crypto.randomUUID();
-  await db.query("INSERT INTO users (id, name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)", [reporter, "Riley Requester", "riley@example.com", "h", "requester"]);
-  await db.query("INSERT INTO users (id, name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)", [agent, "Amara Agent", "amara@example.com", "h", "agent"]);
+  await db.query("INSERT INTO users (id, name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)", [
+    reporter,
+    "Riley Requester",
+    "riley@example.com",
+    "h",
+    "requester",
+  ]);
+  await db.query("INSERT INTO users (id, name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)", [
+    agent,
+    "Amara Agent",
+    "amara@example.com",
+    "h",
+    "agent",
+  ]);
   await db.query("INSERT INTO categories (id, name) VALUES (?, ?)", [category, "Network"]);
 
   const defs = [
