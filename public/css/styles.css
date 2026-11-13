@@ -123,6 +123,11 @@
   box-sizing: border-box;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -462,7 +467,7 @@ input[type="search"] {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  overflow: hidden;
+  overflow-x: auto;
 }
 .incident-table {
   width: 100%;
@@ -476,7 +481,7 @@ input[type="search"] {
   color: var(--muted);
   padding: 0.7rem 0.9rem;
   border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--surface) 92%, var(--text) 8%);
+  background: var(--surface);
 }
 .incident-table td {
   padding: 0.75rem 0.9rem;
@@ -490,10 +495,20 @@ input[type="search"] {
   border-left: 5px solid var(--prio-accent);
 }
 .incident-table tbody tr.row:hover {
-  background: color-mix(in srgb, var(--surface) 94%, var(--accent) 6%);
+  background: var(--bg);
 }
 .cell-title {
   min-width: 16rem;
+}
+
+/* color-mix() needs a recent browser; older ones keep the plain colours above. */
+@supports (background: color-mix(in srgb, white 50%, black)) {
+  .incident-table th {
+    background: color-mix(in srgb, var(--surface) 92%, var(--text) 8%);
+  }
+  .incident-table tbody tr.row:hover {
+    background: color-mix(in srgb, var(--surface) 94%, var(--accent) 6%);
+  }
 }
 
 .link-btn {
@@ -545,6 +560,7 @@ input[type="search"] {
 .dialog {
   width: min(42rem, calc(100vw - 1.5rem));
   max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -606,11 +622,9 @@ input[type="search"] {
   }
 }
 
-/* Below this width the table becomes a stack of cards, one per incident. */
-@media (max-width: 760px) {
-  h1 {
-    font-size: 1.3rem;
-  }
+/* Below this width the table becomes a stack of cards, one per incident.
+   The six-column table needs about 900px, so tablets get the card layout too. */
+@media (max-width: 900px) {
   .table-wrap {
     background: transparent;
     border: 0;
@@ -679,6 +693,13 @@ input[type="search"] {
   .cell-title .link-btn {
     font-size: 1.02rem;
   }
+}
+
+/* Phone-only tweaks. */
+@media (max-width: 760px) {
+  h1 {
+    font-size: 1.3rem;
+  }
 
   /* Keep the legend to one tight row of badges on phones. */
   .legend-note {
@@ -693,6 +714,12 @@ input[type="search"] {
   }
   .filter-row .btn {
     flex: 1 1 100%;
+  }
+
+  /* 16px fields stop iOS Safari zooming the page when one is focused. */
+  select,
+  input[type="search"] {
+    font-size: 16px;
   }
 }
 
@@ -711,6 +738,20 @@ input[type="search"] {
   }
   .facts dt {
     margin-top: 0.4rem;
+  }
+}
+
+/* Touch screens: roughly 44px tap targets. */
+@media (pointer: coarse) {
+  .btn,
+  .chip,
+  .toggle,
+  select,
+  input[type="search"] {
+    min-height: 44px;
+  }
+  .link-btn {
+    padding: 0.5rem 0;
   }
 }
 
