@@ -2,8 +2,10 @@ const crypto = require("crypto");
 const db = require("../config/database");
 const env = require("../config/env");
 const slaService = require("./slaService");
+const auditService = require("./auditService");
 const clock = require("../utils/clock");
 const { ESCALATABLE_STATUSES, findNextHigherPriority, decideEscalation } = require("../domain/escalationPolicy");
+const { AUDIT_ACTIONS, ENTITY_TYPES } = require("../domain/auditPolicy");
 
 /**
  * One pass over all open incidents, raising any that are due by one priority
@@ -12,9 +14,10 @@ const { ESCALATABLE_STATUSES, findNextHigherPriority, decideEscalation } = requi
  *   now     override the clock (used by tests and scripts)
  *   dryRun  report what WOULD be escalated without changing anything
  *
- * Each escalation is its own transaction: the priority change and its audit
- * row are written together or not at all, and one failing incident doesn't
- * stop the rest. At most one level per incident per run.
+ * Each escalation is its own transaction: the priority change, its
+ * incident_escalations row and its audit row are written together or not at
+ * all, and one failing incident doesn't stop the rest. At most one level per
+ * incident per run.
  *
  * Assumes a single scheduler is running. Before the app runs as multiple
  * instances, the re-check inside the transaction below (which skips an incident
@@ -85,6 +88,22 @@ async function runEscalationCycle({ now = clock.now(), dryRun = false } = {}) {
            VALUES (?, ?, ?, ?, ?, ?, NULL)`,
           [crypto.randomUUID(), incident.id, current.id, next.id, decision.reason, now.toISOString()]
         );
+        // Automatic escalations have no human actor (actorId null = the system).
+        await auditService.record(query, {
+          action: AUDIT_ACTIONS.INCIDENT_ESCALATED,
+          entityType: ENTITY_TYPES.INCIDENT,
+          entityId: incident.id,
+          incidentId: incident.id,
+          actorId: null,
+          changes: { priority_id: { from: current.id, to: next.id } },
+          metadata: {
+            automatic: true,
+            from_priority: current.name,
+            to_priority: next.name,
+            reason: decision.reason,
+          },
+          occurredAt: now.toISOString(),
+        });
         return true;
       });
       if (applied) escalated.push(entry);

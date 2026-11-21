@@ -111,3 +111,30 @@ CREATE TABLE IF NOT EXISTS incident_escalations (
 );
 
 CREATE INDEX IF NOT EXISTS idx_escalations_incident ON incident_escalations(incident_id);
+
+-- Audit log: one append-only row per user (or system) action, with what
+-- changed. The history tables above answer "what is the current trail of this
+-- one aspect"; this answers "who did what, when, and from where" across all of
+-- them. Rows are written in the same transaction as the change they describe.
+-- The app has no update/delete path for this table.
+--   actor_id    null = the system (e.g. the automatic escalation job)
+--   changes     JSON text: { "field": { "from": ..., "to": ... } }
+--   metadata    JSON text: note, reason, request id, client address, user agent
+-- No foreign key on entity_id (it is polymorphic); incident_id is the FK used
+-- for the per-incident trail.
+CREATE TABLE IF NOT EXISTS audit_log (
+  id          TEXT PRIMARY KEY,
+  occurred_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  actor_id    TEXT REFERENCES users(id),
+  action      TEXT NOT NULL,                      -- e.g. 'incident.status_changed'
+  entity_type TEXT NOT NULL,                      -- e.g. 'incident'
+  entity_id   TEXT NOT NULL,
+  incident_id TEXT REFERENCES incidents(id),
+  changes     TEXT,
+  metadata    TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_incident ON audit_log(incident_id, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_audit_actor    ON audit_log(actor_id, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_audit_action   ON audit_log(action, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_audit_time     ON audit_log(occurred_at);

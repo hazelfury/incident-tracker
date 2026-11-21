@@ -4,8 +4,10 @@ const { HttpError } = require("../utils/httpError");
 const clock = require("../utils/clock");
 const { placeholders } = require("../utils/sql");
 const lifecycle = require("../domain/incidentLifecycle");
+const { AUDIT_ACTIONS, ENTITY_TYPES, FIELDS, diffFields, compactMetadata } = require("../domain/auditPolicy");
 const { MINUTE_MS } = require("../domain/slaCalculator");
 const slaService = require("./slaService");
+const auditService = require("./auditService");
 
 const LIST_LIMIT = 500;
 
@@ -48,10 +50,26 @@ function recordStatusChange(query, { incidentId, from, to, changedBy, changedAt,
   );
 }
 
+// The single place an incident audit row is written. It uses the transaction's
+// own `query`, so the audit row commits or rolls back with the change it
+// describes.
+function recordAudit(query, { action, incident, actorId, changes, metadata = null, occurredAt }) {
+  return auditService.record(query, {
+    action,
+    entityType: ENTITY_TYPES.INCIDENT,
+    entityId: incident.id,
+    incidentId: incident.id,
+    actorId,
+    changes,
+    metadata,
+    occurredAt,
+  });
+}
+
 /**
  * Creates an incident in the "new" state, computing due_at from the chosen
- * priority's SLA, and logs the initial status history row in the same
- * transaction as the insert.
+ * priority's SLA, and logs the initial status history row and the audit row
+ * in the same transaction as the insert.
  */
 async function createIncident({ title, description, reporterId, categoryId, priorityId, teamId }) {
   if (!title || !reporterId || !categoryId || !priorityId) {
@@ -92,7 +110,16 @@ async function createIncident({ title, description, reporterId, categoryId, prio
       changedBy: reporterId,
       changedAt: createdAt,
     });
-    return fetchIncident(query, id);
+
+    const created = await fetchIncident(query, id);
+    await recordAudit(query, {
+      action: AUDIT_ACTIONS.INCIDENT_CREATED,
+      incident: created,
+      actorId: reporterId,
+      changes: diffFields(null, created, FIELDS.created),
+      occurredAt: createdAt,
+    });
+    return created;
   });
 }
 
@@ -100,7 +127,8 @@ async function createIncident({ title, description, reporterId, categoryId, prio
  * Assigns (or reassigns) an incident to a user. Closes out any currently
  * open incident_assignments row, opens a new one, updates incidents.assignee_id,
  * and, if the incident is still "new", advances status to "assigned" with
- * a matching status history row. All in one transaction.
+ * a matching status history row. The audit row is written in the same
+ * transaction.
  */
 async function assignIncident({ incidentId, assignedTo, assignedBy, reason }) {
   if (!assignedTo) {
@@ -154,15 +182,25 @@ async function assignIncident({ incidentId, assignedTo, assignedBy, reason }) {
       });
     }
 
-    return fetchIncident(query, incidentId);
+    const updated = await fetchIncident(query, incidentId);
+    await recordAudit(query, {
+      action: incident.assignee_id ? AUDIT_ACTIONS.INCIDENT_REASSIGNED : AUDIT_ACTIONS.INCIDENT_ASSIGNED,
+      incident: updated,
+      actorId: assignedBy,
+      changes: diffFields(incident, updated, FIELDS.assignment),
+      metadata: compactMetadata({ reason }),
+      occurredAt: assignedAt,
+    });
+    return updated;
   });
 }
 
 /**
  * Transitions an incident's status, validating against the lifecycle rules,
  * stamping resolved_at / closed_at as appropriate, and logging the change
- * to incident_status_history. Moving to "assigned" is not allowed here: only
- * the assignment endpoint may do that, because it also sets the assignee.
+ * to incident_status_history and the audit log. Moving to "assigned" is not
+ * allowed here: only the assignment endpoint may do that, because it also
+ * sets the assignee.
  */
 async function updateStatus({ incidentId, toStatus, changedBy, note }) {
   if (!lifecycle.isValidStatus(toStatus)) {
@@ -219,7 +257,18 @@ async function updateStatus({ incidentId, toStatus, changedBy, note }) {
       note: note || null,
     });
 
-    return fetchIncident(query, incidentId);
+    const updated = await fetchIncident(query, incidentId);
+    await recordAudit(query, {
+      action: lifecycle.isReopen(incident.status, toStatus)
+        ? AUDIT_ACTIONS.INCIDENT_REOPENED
+        : AUDIT_ACTIONS.INCIDENT_STATUS_CHANGED,
+      incident: updated,
+      actorId: changedBy,
+      changes: diffFields(incident, updated, FIELDS.status),
+      metadata: compactMetadata({ note }),
+      occurredAt: changedAt,
+    });
+    return updated;
   });
 }
 
