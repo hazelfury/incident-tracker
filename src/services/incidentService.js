@@ -5,6 +5,7 @@ const clock = require("../utils/clock");
 const { placeholders } = require("../utils/sql");
 const lifecycle = require("../domain/incidentLifecycle");
 const { AUDIT_ACTIONS, ENTITY_TYPES, FIELDS, diffFields, compactMetadata } = require("../domain/auditPolicy");
+const assignmentRules = require("../domain/assignmentRules");
 const { MINUTE_MS } = require("../domain/slaCalculator");
 const slaService = require("./slaService");
 const auditService = require("./auditService");
@@ -32,6 +33,11 @@ async function rowExists(table, id) {
   if (!id) return true;
   const { rows } = await db.query(`SELECT 1 FROM ${table} WHERE id = ?`, [id]);
   return rows.length > 0;
+}
+
+async function findUser(id) {
+  const { rows } = await db.query("SELECT id, role FROM users WHERE id = ?", [id]);
+  return rows[0] || null;
 }
 
 async function fetchIncident(query, id) {
@@ -129,17 +135,38 @@ async function createIncident({ title, description, reporterId, categoryId, prio
  * and, if the incident is still "new", advances status to "assigned" with
  * a matching status history row. The audit row is written in the same
  * transaction.
+ *
+ * Rules (see domain/assignmentRules.js):
+ *   - assignedTo, assignedBy and reason must have the right types (400, not a driver error)
+ *   - the assignee, and the person assigning, must be staff (agent, manager, admin), not a requester
+ *   - assigning an incident to the person it is already assigned to is a no-op:
+ *     200, nothing written (a double click or retry creates no duplicate
+ *     assignment, no empty "reassigned" audit row and does not move assigned_at)
+ *   - closed and cancelled incidents cannot be assigned (409)
  */
 async function assignIncident({ incidentId, assignedTo, assignedBy, reason }) {
-  if (!assignedTo) {
-    throw new HttpError(400, "assignedTo is required");
+  const inputError = assignmentRules.validateAssignmentInput({ assignedTo, assignedBy, reason });
+  if (inputError) {
+    throw new HttpError(400, inputError);
   }
-  if (!(await rowExists("users", assignedTo))) {
+  const assignee = await findUser(assignedTo);
+  if (!assignee) {
     throw new HttpError(400, `Unknown assignedTo: ${assignedTo}`);
   }
-  if (!(await rowExists("users", assignedBy))) {
-    throw new HttpError(400, `Unknown assignedBy: ${assignedBy}`);
+  if (!assignmentRules.canBeAssignee(assignee.role)) {
+    throw new HttpError(400, assignmentRules.assigneeRoleMessage(assignedTo, assignee.role));
   }
+  // An empty assignedBy means "system assignment" and is allowed.
+  if (assignedBy) {
+    const assigner = await findUser(assignedBy);
+    if (!assigner) {
+      throw new HttpError(400, `Unknown assignedBy: ${assignedBy}`);
+    }
+    if (!assignmentRules.canAssignIncidents(assigner.role)) {
+      throw new HttpError(400, assignmentRules.assignerRoleMessage(assignedBy, assigner.role));
+    }
+  }
+  const cleanReason = assignmentRules.normalizeReason(reason);
 
   return db.withTransaction(async (query) => {
     const incident = await fetchIncident(query, incidentId);
@@ -148,6 +175,10 @@ async function assignIncident({ incidentId, assignedTo, assignedBy, reason }) {
     }
     if (!lifecycle.canAssign(incident.status)) {
       throw new HttpError(409, `Cannot assign an incident with status "${incident.status}"`);
+    }
+    // Already with this person: nothing to do (idempotent, so retries are safe).
+    if (incident.assignee_id === assignedTo) {
+      return incident;
     }
 
     const assignedAt = nowIso();
@@ -160,7 +191,7 @@ async function assignIncident({ incidentId, assignedTo, assignedBy, reason }) {
     await query(
       `INSERT INTO incident_assignments (id, incident_id, assigned_to, assigned_by, assigned_at, reason)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [crypto.randomUUID(), incidentId, assignedTo, assignedBy || null, assignedAt, reason || null]
+      [crypto.randomUUID(), incidentId, assignedTo, assignedBy || null, assignedAt, cleanReason]
     );
 
     const nextStatus = lifecycle.statusAfterAssignment(incident.status);
@@ -188,7 +219,7 @@ async function assignIncident({ incidentId, assignedTo, assignedBy, reason }) {
       incident: updated,
       actorId: assignedBy,
       changes: diffFields(incident, updated, FIELDS.assignment),
-      metadata: compactMetadata({ reason }),
+      metadata: compactMetadata({ reason: cleanReason }),
       occurredAt: assignedAt,
     });
     return updated;
